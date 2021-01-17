@@ -113,13 +113,6 @@ def show_level(arr):
         print("".join(line))
 
 
-def build_room(block_data, pos, dim):
-    x0, y0, z0 = pos
-    w, d, h = dim
-    for y in range(y0, h + y0):
-        block_data[y][z0:z0+d,x0:x0+w] = 2
-
-
 def create_template(width, length, height):
     dungeon = nbt.read_from_nbt_file("dungeon.schem")
     dungeon['Length'] = nbt.NBTTagShort(length)
