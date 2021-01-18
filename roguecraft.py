@@ -83,12 +83,12 @@ class LevelBuilder:
 
                 if self.rand.randint(0, 1):
                     # horizontal and then vertical tunnel
-                    h = Passage(x1, y1, x2, y1 + 1)
-                    v = Passage(x2, y1, x2 + 1, y2)
+                    h = Passage(x1, y1, x2, y1)
+                    v = Passage(x2, y1, x2, y2)
                 else:
                     # vertical and then horizontal tunnel
-                    v = Passage(x1, y1, x1 + 1, y2)
-                    h = Passage(x1, y2, x2, y2 + 1)
+                    v = Passage(x1, y1, x1, y2)
+                    h = Passage(x1, y2, x2, y2)
                 self.passages.append(h)
                 self.passages.append(v)
 
@@ -101,7 +101,8 @@ class LevelBuilder:
             arr[room.y1:room.y2, room.x1:room.x2] = 2
 
         for passage in self.passages:
-            arr[passage.y1:passage.y2, passage.x1:passage.x2] = 2
+            # logger.debug(f"passage: {passage} - [{passage.y1}:{passage.y2 + 1}, {passage.x1}:{passage.x2 + 1}]")
+            arr[passage.y1:passage.y2 + 1, passage.x1:passage.x2 + 1] = 2
 
         return arr
 
@@ -115,9 +116,9 @@ def show_level(arr):
 
 def create_template(width, length, height):
     dungeon = nbt.read_from_nbt_file("dungeon.schem")
+    dungeon['Width'] = nbt.NBTTagShort(width)
     dungeon['Length'] = nbt.NBTTagShort(length)
     dungeon['Height'] = nbt.NBTTagShort(height)
-    dungeon['Width'] = nbt.NBTTagShort(width)
     block_data = np.zeros(width * length * height, dtype=int).reshape(height, length, width)
     return dungeon, block_data
 
@@ -132,21 +133,16 @@ def write_dungeon(name, dungeon, block_data):
 
 def main(parser, args):
     items = json.loads(open('items.json').read())
-    level = {
-        'rooms': [],
-        'corridors': [],
-        'stairs': [],
-    }
 
-    width, length, height = 40, 60, 5
+    width, length, height = args.width, args.length, args.height
     dungeon, block_data = create_template(width, length, height)
     # set floor and ceiling to be all stone
     block_data[0] = 0
     # FIXME make the ceiling air for the moment
     block_data[-1] = 2
 
-    builder = LevelBuilder(width, length, room_min_size=4, room_max_size=10,
-                           max_rooms=30)
+    builder = LevelBuilder(width, length, seed=args.seed, room_min_size=args.min,
+                           room_max_size=args.max, max_rooms=args.rooms)
     outline = builder.build()
     show_level(outline)
     for y in range(1, height - 1):
@@ -157,8 +153,22 @@ def main(parser, args):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-D", "--debug", help="debug logging output", 
-                        action="store_true")
+    parser.add_argument("-w", "--width", type=int,
+                        help="dungeon width")
+    parser.add_argument("-l", "--length", type=int, 
+                        help="dungeon length")
+    parser.add_argument("--height", default=5, type=int, 
+                        help="dungeon height (min 4)")
+    parser.add_argument("-m", "--min", default=5, type=int, 
+                        help="room minimum size")
+    parser.add_argument("-M", "--max", default=14, type=int, 
+                        help="room maximum size")
+    parser.add_argument("-R", "--rooms", default=30, type=int, 
+                        help="maximum number of rooms")
+    parser.add_argument("--seed", default=None, type=int, 
+                        help='random seed (int)')
+    parser.add_argument("-D", "--debug", action="store_true",
+                        help="debug logging output")
     args = parser.parse_args()
 
     level = logging.DEBUG if args.debug else logging.INFO
