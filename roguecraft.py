@@ -48,6 +48,12 @@ class Passage(Rect):
         return f"<Passage {self.x1},{self.y1},{self.x2},{self.y2}>"
 
 
+class Stairs:
+    " a spiral stair up "
+    def __init__(self, room):
+        self.room = room
+
+
 class LevelBuilder:
 
     def __init__(self, level_width, level_height, seed=None, room_max_size=10, 
@@ -64,6 +70,7 @@ class LevelBuilder:
         self.max_rooms = max_rooms
         self.rooms = []
         self.passages = []
+        self.stairs = []
 
     def build(self):
         for _ in range(self.max_rooms):
@@ -94,32 +101,91 @@ class LevelBuilder:
 
             self.rooms.append(room)
 
-        arr = np.zeros(self.level_width * self.level_height, dtype=int) \
+        # add stairs up
+        r = self.rand.choice(self.rooms)
+        self.stairs.append(Stairs(r))
+        logger.debug(f"stair at {r}")
+
+        self.outline = np.zeros(self.level_width * self.level_height, dtype=int) \
                 .reshape(self.level_height, self.level_width)
 
         for room in self.rooms:
-            arr[room.y1:room.y2, room.x1:room.x2] = 2
+            self.outline[room.y1:room.y2, room.x1:room.x2] = 2
 
         for passage in self.passages:
             # logger.debug(f"passage: {passage} - [{passage.y1}:{passage.y2 + 1}, {passage.x1}:{passage.x2 + 1}]")
-            arr[passage.y1:passage.y2 + 1, passage.x1:passage.x2 + 1] = 2
+            self.outline[passage.y1:passage.y2 + 1, passage.x1:passage.x2 + 1] = 2
 
-        return arr
+        return self.outline
+
+    def build_stairs(self, block_data):
+        # assume height is 5
+        stair = self.stairs[0]
+        x, z = stair.room.x1, stair.room.y1
+        p1 = z + 1, x + 1
+        p2 = z, x + 1
+        p3 = z, x
+        p4 = z + 1, x
+        square = [p1, p2, p3, p4]
+
+        # stone_brick_stairs north 3
+        # stone_brick_stairs east 4
+        # stone_brick_stairs south 5
+        # stone_brick_stairs west 6
+
+        def set_bricks(y, *bricks):
+            for (z, x), b in zip(square, bricks):
+                block_data[y][z][x] = b
+
+        set_bricks(1, 3, 0, 0, 0)
+        set_bricks(2, 2, 6, 0, 0)
+        set_bricks(3, 2, 2, 6, 0)
+        set_bricks(4, 2, 2, 2, 5)
 
 
-def show_level(arr):
-    h, w = arr.shape
+def show_level(builder):
+    print(f"""Dungeon(seed={builder.seed} width={builder.level_width}, """
+          f"""height={builder.level_height}, room_max_sz={builder.room_max_size}, """
+          f"""room_min_sz={builder.room_min_size},max_rooms={builder.max_rooms})""")
+    h, w = builder.outline.shape
+    for stair in builder.stairs:
+        x, y = stair.room.x1, stair.room.y1
+        builder.outline[y][x] = 3
+        builder.outline[y][x+1] = 3
+        builder.outline[y+1][x+1] = 3
+        builder.outline[y+1][x] = 3
     for y in range(h):
-        line = [{0: '#', 2: '.'}[c] for c in arr[y]]
+        line = [{0: '#', 2: '.', 3: '>'}[c] for c in builder.outline[y]]
         print("".join(line))
 
 
+def load_schematic(filename):
+    return nbt.read_from_nbt_file(filename)
+
+
 def create_template(width, length, height):
-    dungeon = nbt.read_from_nbt_file("dungeon.schem")
+    dungeon = nbt.NBTTagCompound()
+    dungeon['Version'] = nbt.NBTTagInt(2)
+    dungeon['DataVersion'] = nbt.NBTTagInt(2584)
     dungeon['Width'] = nbt.NBTTagShort(width)
     dungeon['Length'] = nbt.NBTTagShort(length)
     dungeon['Height'] = nbt.NBTTagShort(height)
+    dungeon['BlockData'] = nbt.NBTTagList(tag_type_id=10)
+    dungeon['BlockEntities'] = nbt.NBTTagByteArray()
+
+    # TODO handle palette better
+    dungeon['Palette'] = nbt.NBTTagCompound()
+    dungeon['Palette']['minecraft:stone'] = nbt.NBTTagInt(0)
+    dungeon['Palette']['minecraft:smooth_stone'] = nbt.NBTTagInt(1)
+    dungeon['Palette']['minecraft:air'] = nbt.NBTTagInt(2)
+    dungeon['Palette']['minecraft:stone_brick_stairs[facing=north,half=bottom,shape=straight,waterlogged=false]'] = nbt.NBTTagInt(3)
+    dungeon['Palette']['minecraft:stone_brick_stairs[facing=east,half=bottom,shape=straight,waterlogged=false]'] = nbt.NBTTagInt(4)
+    dungeon['Palette']['minecraft:stone_brick_stairs[facing=south,half=bottom,shape=straight,waterlogged=false]'] = nbt.NBTTagInt(5)
+    dungeon['Palette']['minecraft:stone_brick_stairs[facing=west,half=bottom,shape=straight,waterlogged=false]'] = nbt.NBTTagInt(6)
+    dungeon['PaletteMax'] = nbt.NBTTagInt(7)
+
     block_data = np.zeros(width * length * height, dtype=int).reshape(height, length, width)
+
     return dungeon, block_data
 
 
@@ -128,7 +194,7 @@ def write_dungeon(name, dungeon, block_data):
 
     dungeon['BlockData'] = nbt.NBTTagByteArray(bd)
 
-    nbt.write_to_nbt_file('template.schem', dungeon)
+    nbt.write_to_nbt_file(name, dungeon)
 
 
 def main(parser, args):
@@ -138,37 +204,51 @@ def main(parser, args):
     dungeon, block_data = create_template(width, length, height)
     # set floor and ceiling to be all stone
     block_data[0] = 0
-    # FIXME make the ceiling air for the moment
-    block_data[-1] = 2
+    block_data[-1] = 0
 
     builder = LevelBuilder(width, length, seed=args.seed, room_min_size=args.min,
                            room_max_size=args.max, max_rooms=args.rooms)
     outline = builder.build()
-    show_level(outline)
     for y in range(1, height - 1):
         block_data[y] = outline
 
-    write_dungeon("dungeon.schem", dungeon, block_data)
+    # make the room ceilings smooth stone
+    block_data[-1][outline == 2] = 1
+
+    # add stairs
+    builder.build_stairs(block_data)
+
+    write_dungeon(f"{args.name}.schem", dungeon, block_data)
+
+    if args.debug:
+        show_level(builder)
 
 
 def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-w", "--width", type=int,
+    parser = argparse.ArgumentParser(usage="""
+Create a dungeon level suitable for importing with worldedit.
+
+Example:
+    ./roguecraft.py -w 60 -l 60 -m 3 -M 20 -R 40 -D 
+""")
+    parser.add_argument("-w", "--width", type=int, required=True,
                         help="dungeon width")
-    parser.add_argument("-l", "--length", type=int, 
+    parser.add_argument("-l", "--length", type=int, required=True,
                         help="dungeon length")
-    parser.add_argument("--height", default=5, type=int, 
+    parser.add_argument("--height", default=5, type=int, required=False,
                         help="dungeon height (min 4)")
-    parser.add_argument("-m", "--min", default=5, type=int, 
+    parser.add_argument("-m", "--min", default=5, type=int, required=True,
                         help="room minimum size")
-    parser.add_argument("-M", "--max", default=14, type=int, 
+    parser.add_argument("-M", "--max", default=14, type=int, required=True,
                         help="room maximum size")
-    parser.add_argument("-R", "--rooms", default=30, type=int, 
+    parser.add_argument("-R", "--rooms", default=30, type=int, required=True,
                         help="maximum number of rooms")
-    parser.add_argument("--seed", default=None, type=int, 
+    parser.add_argument("--seed", default=None, type=int, required=False,
                         help='random seed (int)')
     parser.add_argument("-D", "--debug", action="store_true",
                         help="debug logging output")
+    parser.add_argument("name", default="dungeon", nargs='?',
+                        help="Filename for the schema (default is dungeon)")
     args = parser.parse_args()
 
     level = logging.DEBUG if args.debug else logging.INFO
