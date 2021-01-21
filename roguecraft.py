@@ -118,29 +118,38 @@ class LevelBuilder:
 
         return self.outline
 
+
+    # TODO - generalise to stairs in any direction, look for free space to build
     def build_stairs(self, block_data):
+        STAIR_NORTH, STAIR_EAST, STAIR_SOUTH, STAIR_WEST = 3, 4, 5, 6
+
+        def set_bricks(y, points, *blocks):
+            for (z, x), b in zip(points, blocks):
+                block_data[y][z][x] = b
+
         # assume height is 5
         stair = self.stairs[0]
         x, z = stair.room.x1, stair.room.y1
-        p1 = z + 1, x + 1
-        p2 = z, x + 1
-        p3 = z, x
-        p4 = z + 1, x
-        square = [p1, p2, p3, p4]
 
-        # stone_brick_stairs north 3
-        # stone_brick_stairs east 4
-        # stone_brick_stairs south 5
-        # stone_brick_stairs west 6
+        # Counter-clockwise north facing stair
+        # (3) nw | ne (2)
+        #     ---+---
+        # (4) sw | se (1)
+        se = z + 1, x + 1
+        ne = z, x + 1
+        nw = z, x
+        sw = z + 1, x
 
-        def set_bricks(y, *bricks):
-            for (z, x), b in zip(square, bricks):
-                block_data[y][z][x] = b
+        spiral = [se, ne, nw, sw]
+        stair_pattern = STAIR_NORTH, STAIR_WEST, STAIR_SOUTH
 
-        set_bricks(1, 3, 0, 0, 0)
-        set_bricks(2, 2, 6, 0, 0)
-        set_bricks(3, 2, 2, 6, 0)
-        set_bricks(4, 2, 2, 2, 5)
+        # north stair
+        set_bricks(1, spiral, stair_pattern[0], 0, 0, 0)
+        # two west stairs
+        set_bricks(2, spiral, 2, stair_pattern[1], 0, 0)
+        set_bricks(3, spiral, 2, 2, stair_pattern[1], 0)
+        # one south stair
+        set_bricks(4, spiral, 2, 2, 2, stair_pattern[2])
 
 
 def show_level(builder):
