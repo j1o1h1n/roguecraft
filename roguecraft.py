@@ -13,6 +13,28 @@ import python_nbt.nbt as nbt
 
 logger = logging.getLogger()
 
+
+def compass_rose(x, z, posn='ne'):
+    """
+    Return the compass points around the x,z coordinates
+    """
+    if posn == 'se':
+        x, z = x - 1, z - 1
+    elif posn == 'sw':
+        x, z = x, z - 1
+    elif posn == 'ne':
+        x, z = x - 1, z
+    elif posn == 'nw':
+        pass
+    else:
+        raise Error(f"unexpected position {posn}")
+    
+    se = z + 1, x + 1
+    ne = z, x + 1
+    nw = z, x
+    sw = z + 1, x
+    return {'ne': ne, 'nw': nw, 'se': se, 'sw': sw}
+
 class Rect:
     " a rectangle on the map. used to characterize a room "
     def __init__(self, x, y, w, h):
@@ -105,6 +127,9 @@ class LevelBuilder:
         r = self.rand.choice(self.rooms)
         self.stairs.append(Stairs(r))
         logger.debug(f"stair at {r}")
+        r = self.rand.choice(self.rooms)
+        self.stairs.append(Stairs(r))
+        logger.debug(f"stair at {r}")
 
         self.outline = np.zeros(self.level_width * self.level_height, dtype=int) \
                 .reshape(self.level_height, self.level_width)
@@ -121,35 +146,69 @@ class LevelBuilder:
 
     # TODO - generalise to stairs in any direction, look for free space to build
     def build_stairs(self, block_data):
-        STAIR_NORTH, STAIR_EAST, STAIR_SOUTH, STAIR_WEST = 3, 4, 5, 6
+        # stair block ids
+        NORTH, EAST, SOUTH, WEST = 3, 4, 5, 6
+        SPIRAL_STAIRS = {
+            # ##  #<  <.  ..
+            # #^  #.  #.  v.
+            "nw_ccw_spiral": (['se', 'ne', 'nw', 'sw'], [NORTH, WEST, WEST, SOUTH]),
+            # ##  >#  .>  ..
+            # ^#  .#  .#  .v
+            "ne_ccw_spiral": (['sw', 'nw', 'ne', 'se'], [NORTH, EAST, EAST, SOUTH]),
+            # v#  .#  .#  .^
+            # ##  >#  .>  ..
+            "se_ccw_spiral": (['nw', 'sw', 'se', 'ne'], [SOUTH, EAST, EAST, NORTH]),
+            # #v  #.  #.  ^.
+            # ##  #<  <.  ..
+            "sw_ccw_spiral": (['ne', 'se', 'sw', 'nw'], [SOUTH, WEST, WEST, NORTH]),
+        }
 
         def set_bricks(y, points, *blocks):
             for (z, x), b in zip(points, blocks):
-                block_data[y][z][x] = b
+                block_data[y + 1][z][x] = b
 
-        # assume height is 5
+        def build_stair(spiral_directions, steps, compass):
+            spiral = [compass[d] for d in spiral_directions]
+            block = 0
+            air = 2
+            for i in range(4):
+                blocks = [air] * i + [steps[i]] + [block] * (3 - i)
+                set_bricks(i, spiral, *blocks)
+
+
         stair = self.stairs[0]
+
+        # top left corner stair 
         x, z = stair.room.x1, stair.room.y1
+        compass = compass_rose(x - 1, z, 'nw')
+        spiral, steps = SPIRAL_STAIRS['nw_ccw_spiral']
+        build_stair(spiral, steps, compass)
 
-        # Counter-clockwise north facing stair
-        # (3) nw | ne (2)
-        #     ---+---
-        # (4) sw | se (1)
-        se = z + 1, x + 1
-        ne = z, x + 1
-        nw = z, x
-        sw = z + 1, x
+        # # top right corner stair 
+        x, z = stair.room.x2, stair.room.y1
+        compass = compass_rose(x, z, 'ne')
+        spiral, steps = SPIRAL_STAIRS['ne_ccw_spiral']
+        build_stair(spiral, steps, compass)
 
-        spiral = [se, ne, nw, sw]
-        stair_pattern = STAIR_NORTH, STAIR_WEST, STAIR_SOUTH
+        # bottom left corner stair 
+        x, z = stair.room.x1 - 1, stair.room.y2
+        compass = compass_rose(x, z, 'sw')
+        spiral, steps = SPIRAL_STAIRS['sw_ccw_spiral']
+        build_stair(spiral, steps, compass)
 
-        # north stair
-        set_bricks(1, spiral, stair_pattern[0], 0, 0, 0)
-        # two west stairs
-        set_bricks(2, spiral, 2, stair_pattern[1], 0, 0)
-        set_bricks(3, spiral, 2, 2, stair_pattern[1], 0)
-        # one south stair
-        set_bricks(4, spiral, 2, 2, 2, stair_pattern[2])
+        # bottom right corner stair
+        x, z = stair.room.x2, stair.room.y2
+        compass = compass_rose(x, z, 'se')
+        spiral, steps = SPIRAL_STAIRS['se_ccw_spiral']
+        build_stair(spiral, steps, compass)
+
+        stair = self.stairs[1]
+        # in the middle of the room
+        x, z = (stair.room.x1 + stair.room.x2) // 2, (stair.room.y1 + stair.room.y2) // 2
+        compass = compass_rose(x, z, 'nw')
+        spiral, steps = SPIRAL_STAIRS['nw_ccw_spiral']
+        build_stair(spiral, steps, compass)
+
 
 
 def show_level(builder):
