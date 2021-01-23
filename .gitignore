@@ -1,3 +1,4 @@
 +rgc
 __pycache__
 dungeon.schem
+build/*.schem

@@ -1,0 +1,11 @@
+# TODO have minecraft block names instead of numbers
+legend:
+  # o is used for empty space that is not specified in the blueprint
+  o   : -1
+  '#' : 0  # Stone
+  □   : 1  # Smooth stone
+  .   : 2  # Air
+  ^   : 3  # Stairs in the four directions
+  '>' : 4
+  v   : 5
+  <   : 6

@@ -1,0 +1,42 @@
+structures:
+  nw_spiral_stair:
+    tags:
+      - stair
+    # height, length, width
+    dimensions: [4, 3, 4]
+    placement_preference: tl
+    blueprint: "
+    ##o□ #<o. <.o. ..o.
+    #^.□ #... #.o. v.o.
+    o..□ o... ooo. ooo.
+    "
+  ne_spiral_stair:
+    tags:
+      - stair
+    dimensions: [4, 3, 3]
+    placement_preference: tr
+    blueprint: "
+    o## o># o.> o..
+    .^# ..# o.# ov.
+    ..o ..o ooo ooo
+    "
+  sw_spiral_stair:
+    tags:
+      - stair
+    dimensions: [4, 3, 3]
+    placement_preference: bl
+    blueprint: "
+    o.. o.. ooo ooo
+    #v. #.. #.o ^.o
+    ##o #<o <.o ..o
+    "
+  se_spiral_stair:
+    tags:
+      - stair
+    dimensions: [4, 3, 3]
+    placement_preference: br
+    blueprint: "
+    ..o ..o ooo ooo
+    .v# ..# o.# o.^
+    o## o># o.^ o..
+    "

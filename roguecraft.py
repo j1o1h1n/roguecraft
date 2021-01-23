@@ -28,7 +28,7 @@ def compass_rose(x, z, posn='ne'):
         pass
     else:
         raise Error(f"unexpected position {posn}")
-    
+
     se = z + 1, x + 1
     ne = z, x + 1
     nw = z, x
@@ -42,12 +42,12 @@ class Rect:
         self.y1 = y
         self.x2 = x + w
         self.y2 = y + h
- 
+
     def center(self):
         center_x = (self.x1 + self.x2) // 2
         center_y = (self.y1 + self.y2) // 2
         return (center_x, center_y)
- 
+
     def intersect(self, other):
         " returns true if this rectangle intersects with another one "
         return (self.x1 <= other.x2 and self.x2 >= other.x1 and
@@ -78,7 +78,7 @@ class Stairs:
 
 class LevelBuilder:
 
-    def __init__(self, level_width, level_height, seed=None, room_max_size=10, 
+    def __init__(self, level_width, level_height, seed=None, room_max_size=10,
                  room_min_size=6, max_rooms=30):
         if seed is None:
             self.seed = random.randint(0, 2 ** 32 - 1)
@@ -178,37 +178,46 @@ class LevelBuilder:
 
         stair = self.stairs[0]
 
-        # top left corner stair 
-        x, z = stair.room.x1, stair.room.y1
-        compass = compass_rose(x - 1, z, 'nw')
-        spiral, steps = SPIRAL_STAIRS['nw_ccw_spiral']
-        build_stair(spiral, steps, compass)
+        loc = self.rand.choice("nw", "ne", "se", "sw", "centre")
 
-        # # top right corner stair 
-        x, z = stair.room.x2, stair.room.y1
-        compass = compass_rose(x, z, 'ne')
-        spiral, steps = SPIRAL_STAIRS['ne_ccw_spiral']
-        build_stair(spiral, steps, compass)
+        if loc == "nw":
+            # top left corner stair
+            x, z = stair.room.x1, stair.room.y1
+            compass = compass_rose(x - 1, z, 'nw')
+            spiral, steps = SPIRAL_STAIRS['nw_ccw_spiral']
+            build_stair(spiral, steps, compass)
 
-        # bottom left corner stair 
-        x, z = stair.room.x1 - 1, stair.room.y2
-        compass = compass_rose(x, z, 'sw')
-        spiral, steps = SPIRAL_STAIRS['sw_ccw_spiral']
-        build_stair(spiral, steps, compass)
+        elif loc == "ne":
+            # # top right corner stair
+            x, z = stair.room.x2, stair.room.y1
+            compass = compass_rose(x, z, 'ne')
+            spiral, steps = SPIRAL_STAIRS['ne_ccw_spiral']
+            build_stair(spiral, steps, compass)
 
-        # bottom right corner stair
-        x, z = stair.room.x2, stair.room.y2
-        compass = compass_rose(x, z, 'se')
-        spiral, steps = SPIRAL_STAIRS['se_ccw_spiral']
-        build_stair(spiral, steps, compass)
+        elif loc == "sw":
+            # bottom left corner stair
+            x, z = stair.room.x1 - 1, stair.room.y2
+            compass = compass_rose(x, z, 'sw')
+            spiral, steps = SPIRAL_STAIRS['sw_ccw_spiral']
+            build_stair(spiral, steps, compass)
 
-        stair = self.stairs[1]
-        # in the middle of the room
-        x, z = (stair.room.x1 + stair.room.x2) // 2, (stair.room.y1 + stair.room.y2) // 2
-        compass = compass_rose(x, z, 'nw')
-        spiral, steps = SPIRAL_STAIRS['nw_ccw_spiral']
-        build_stair(spiral, steps, compass)
+        elif loc == "se":
+            # bottom right corner stair
+            x, z = stair.room.x2, stair.room.y2
+            compass = compass_rose(x, z, 'se')
+            spiral, steps = SPIRAL_STAIRS['se_ccw_spiral']
+            build_stair(spiral, steps, compass)
 
+        elif loc == "centre":
+            stair = self.stairs[1]
+            # in the middle of the room
+            x, z = (stair.room.x1 + stair.room.x2) // 2, (stair.room.y1 + stair.room.y2) // 2
+            compass = compass_rose(x, z, 'nw')
+            spiral, steps = SPIRAL_STAIRS['nw_ccw_spiral']
+            build_stair(spiral, steps, compass)
+
+        else:
+            raise Error(f"failed to place stairs: unexpected {loc}")
 
 
 def show_level(builder):
@@ -240,6 +249,7 @@ def create_template(width, length, height):
     dungeon['Height'] = nbt.NBTTagShort(height)
     dungeon['BlockData'] = nbt.NBTTagList(tag_type_id=10)
     dungeon['BlockEntities'] = nbt.NBTTagByteArray()
+    dungeon['Offset'] = nbt.NBTTagByteArray([0, 0, 0])
 
     # TODO handle palette better
     dungeon['Palette'] = nbt.NBTTagCompound()
@@ -266,21 +276,17 @@ def write_dungeon(name, dungeon, block_data):
 
 
 def main(parser, args):
-    items = json.loads(open('items.json').read())
-
-    width, length, height = args.width, args.length, args.height
+    levels, width, length, height = args.levels, args.width, args.length, args.height
     dungeon, block_data = create_template(width, length, height)
-    # set floor and ceiling to be all stone
-    block_data[0] = 0
-    block_data[-1] = 0
 
     builder = LevelBuilder(width, length, seed=args.seed, room_min_size=args.min,
                            room_max_size=args.max, max_rooms=args.rooms)
+
     outline = builder.build()
     for y in range(1, height - 1):
         block_data[y] = outline
 
-    # make the room ceilings smooth stone
+    # make the room ceilings and floors smooth stone
     block_data[-1][outline == 2] = 1
 
     # add stairs
@@ -297,8 +303,10 @@ def parse_args():
 Create a dungeon level suitable for importing with worldedit.
 
 Example:
-    ./roguecraft.py -w 60 -l 60 -m 3 -M 20 -R 40 -D 
+    ./roguecraft.py -w 60 -l 60 -m 3 -M 20 -R 40 -D
 """)
+    parser.add_argument("-L", "--levels", type=int, required=True,
+                        help="number of levels down the dungeon goes")
     parser.add_argument("-w", "--width", type=int, required=True,
                         help="dungeon width")
     parser.add_argument("-l", "--length", type=int, required=True,
