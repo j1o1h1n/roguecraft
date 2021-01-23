@@ -53,11 +53,10 @@ From inside the game use the WorldEdit commands
 //paste
 ```
 
-
 ## NBT Notes
 
-| ID | Name | Description |
-|--|--|
+| ID | Name       | Description |
+|----|------------|-------------|
 | 0  | End        | None. | 
 | 1  | Byte       | A single signed byte (8 bits) | 
 | 2  | Short      | A signed short (16 bits, big endian) | 
