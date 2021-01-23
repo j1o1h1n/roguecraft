@@ -8,32 +8,12 @@ import numpy as np
 import json
 import math
 import random
-
 import python_nbt.nbt as nbt
+
+import structure
 
 logger = logging.getLogger()
 
-
-def compass_rose(x, z, posn='ne'):
-    """
-    Return the compass points around the x,z coordinates
-    """
-    if posn == 'se':
-        x, z = x - 1, z - 1
-    elif posn == 'sw':
-        x, z = x, z - 1
-    elif posn == 'ne':
-        x, z = x - 1, z
-    elif posn == 'nw':
-        pass
-    else:
-        raise Error(f"unexpected position {posn}")
-
-    se = z + 1, x + 1
-    ne = z, x + 1
-    nw = z, x
-    sw = z + 1, x
-    return {'ne': ne, 'nw': nw, 'se': se, 'sw': sw}
 
 class Rect:
     " a rectangle on the map. used to characterize a room "
@@ -70,12 +50,6 @@ class Passage(Rect):
         return f"<Passage {self.x1},{self.y1},{self.x2},{self.y2}>"
 
 
-class Stairs:
-    " a spiral stair up "
-    def __init__(self, room):
-        self.room = room
-
-
 class LevelBuilder:
 
     def __init__(self, level_width, level_height, seed=None, room_max_size=10,
@@ -92,7 +66,6 @@ class LevelBuilder:
         self.max_rooms = max_rooms
         self.rooms = []
         self.passages = []
-        self.stairs = []
 
     def build(self):
         for _ in range(self.max_rooms):
@@ -123,121 +96,26 @@ class LevelBuilder:
 
             self.rooms.append(room)
 
-        # add stairs up
-        r = self.rand.choice(self.rooms)
-        self.stairs.append(Stairs(r))
-        logger.debug(f"stair at {r}")
-        r = self.rand.choice(self.rooms)
-        self.stairs.append(Stairs(r))
-        logger.debug(f"stair at {r}")
-
-        self.outline = np.zeros(self.level_width * self.level_height, dtype=int) \
-                .reshape(self.level_height, self.level_width)
+        self.floor_plan = np.zeros(self.level_width * self.level_height, dtype=int) \
+                            .reshape(self.level_height, self.level_width)
 
         for room in self.rooms:
-            self.outline[room.y1:room.y2, room.x1:room.x2] = 2
+            self.floor_plan[room.y1:room.y2, room.x1:room.x2] = 2
 
         for passage in self.passages:
-            # logger.debug(f"passage: {passage} - [{passage.y1}:{passage.y2 + 1}, {passage.x1}:{passage.x2 + 1}]")
-            self.outline[passage.y1:passage.y2 + 1, passage.x1:passage.x2 + 1] = 2
+            self.floor_plan[passage.y1:passage.y2 + 1, passage.x1:passage.x2 + 1] = 2
 
-        return self.outline
-
-
-    # TODO - generalise to stairs in any direction, look for free space to build
-    def build_stairs(self, block_data):
-        # stair block ids
-        NORTH, EAST, SOUTH, WEST = 3, 4, 5, 6
-        SPIRAL_STAIRS = {
-            # ##  #<  <.  ..
-            # #^  #.  #.  v.
-            "nw_ccw_spiral": (['se', 'ne', 'nw', 'sw'], [NORTH, WEST, WEST, SOUTH]),
-            # ##  >#  .>  ..
-            # ^#  .#  .#  .v
-            "ne_ccw_spiral": (['sw', 'nw', 'ne', 'se'], [NORTH, EAST, EAST, SOUTH]),
-            # v#  .#  .#  .^
-            # ##  >#  .>  ..
-            "se_ccw_spiral": (['nw', 'sw', 'se', 'ne'], [SOUTH, EAST, EAST, NORTH]),
-            # #v  #.  #.  ^.
-            # ##  #<  <.  ..
-            "sw_ccw_spiral": (['ne', 'se', 'sw', 'nw'], [SOUTH, WEST, WEST, NORTH]),
-        }
-
-        def set_bricks(y, points, *blocks):
-            for (z, x), b in zip(points, blocks):
-                block_data[y + 1][z][x] = b
-
-        def build_stair(spiral_directions, steps, compass):
-            spiral = [compass[d] for d in spiral_directions]
-            block = 0
-            air = 2
-            for i in range(4):
-                blocks = [air] * i + [steps[i]] + [block] * (3 - i)
-                set_bricks(i, spiral, *blocks)
-
-
-        stair = self.stairs[0]
-
-        loc = self.rand.choice("nw", "ne", "se", "sw", "centre")
-
-        if loc == "nw":
-            # top left corner stair
-            x, z = stair.room.x1, stair.room.y1
-            compass = compass_rose(x - 1, z, 'nw')
-            spiral, steps = SPIRAL_STAIRS['nw_ccw_spiral']
-            build_stair(spiral, steps, compass)
-
-        elif loc == "ne":
-            # # top right corner stair
-            x, z = stair.room.x2, stair.room.y1
-            compass = compass_rose(x, z, 'ne')
-            spiral, steps = SPIRAL_STAIRS['ne_ccw_spiral']
-            build_stair(spiral, steps, compass)
-
-        elif loc == "sw":
-            # bottom left corner stair
-            x, z = stair.room.x1 - 1, stair.room.y2
-            compass = compass_rose(x, z, 'sw')
-            spiral, steps = SPIRAL_STAIRS['sw_ccw_spiral']
-            build_stair(spiral, steps, compass)
-
-        elif loc == "se":
-            # bottom right corner stair
-            x, z = stair.room.x2, stair.room.y2
-            compass = compass_rose(x, z, 'se')
-            spiral, steps = SPIRAL_STAIRS['se_ccw_spiral']
-            build_stair(spiral, steps, compass)
-
-        elif loc == "centre":
-            stair = self.stairs[1]
-            # in the middle of the room
-            x, z = (stair.room.x1 + stair.room.x2) // 2, (stair.room.y1 + stair.room.y2) // 2
-            compass = compass_rose(x, z, 'nw')
-            spiral, steps = SPIRAL_STAIRS['nw_ccw_spiral']
-            build_stair(spiral, steps, compass)
-
-        else:
-            raise Error(f"failed to place stairs: unexpected {loc}")
+        return self.floor_plan
 
 
 def show_level(builder):
     print(f"""Dungeon(seed={builder.seed} width={builder.level_width}, """
           f"""height={builder.level_height}, room_max_sz={builder.room_max_size}, """
           f"""room_min_sz={builder.room_min_size},max_rooms={builder.max_rooms})""")
-    h, w = builder.outline.shape
-    for stair in builder.stairs:
-        x, y = stair.room.x1, stair.room.y1
-        builder.outline[y][x] = 3
-        builder.outline[y][x+1] = 3
-        builder.outline[y+1][x+1] = 3
-        builder.outline[y+1][x] = 3
+    h, w = builder.floor_plan.shape
     for y in range(h):
-        line = [{0: '#', 2: '.', 3: '>'}[c] for c in builder.outline[y]]
+        line = [{0: '#', 2: '.', 3: '>'}[c] for c in builder.floor_plan[y]]
         print("".join(line))
-
-
-def load_schematic(filename):
-    return nbt.read_from_nbt_file(filename)
 
 
 def create_template(width, length, height):
@@ -282,15 +160,26 @@ def main(parser, args):
     builder = LevelBuilder(width, length, seed=args.seed, room_min_size=args.min,
                            room_max_size=args.max, max_rooms=args.rooms)
 
-    outline = builder.build()
+    floor_plan = builder.build()
     for y in range(1, height - 1):
-        block_data[y] = outline
+        block_data[y] = floor_plan
 
     # make the room ceilings and floors smooth stone
-    block_data[-1][outline == 2] = 1
+    block_data[-1][floor_plan == 2] = 1
+    block_data[0][floor_plan == 2] = 1
 
-    # add stairs
-    builder.build_stairs(block_data)
+    # add some stairs
+    room = builder.rooms[0]
+    sb = structure.StructureBuilder()
+
+    p1 = 1, room.y1, room.x1
+    p2 = 1, room.y1, room.x2
+    p3 = 1, room.y2, room.x1
+    p4 = 1, room.y2, room.x2
+    block_data = sb.build_structure('nw_spiral_stair', block_data, p1)
+    block_data = sb.build_structure('ne_spiral_stair', block_data, p2)
+    block_data = sb.build_structure('sw_spiral_stair', block_data, p3)
+    block_data = sb.build_structure('se_spiral_stair', block_data, p4)
 
     write_dungeon(f"{args.name}.schem", dungeon, block_data)
 

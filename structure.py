@@ -1,6 +1,7 @@
 """
 Load structure files.
 """
+import math
 import glob
 import yaml
 import numpy as np
@@ -13,6 +14,8 @@ class Structure:
         self.config = config
         self.tags = self.config['tags']
         self.dimensions = self.config['dimensions']
+        # x,z offset when placing the structure
+        self.offsets = self.config.get('offsets', [0, 0])
         self.blueprint = self.parse_blueprint(self.config['blueprint'], legend)
 
     def parse_blueprint(self, blueprint_text, legend):
@@ -47,8 +50,18 @@ class StructureBuilder:
         self.structures = yaml.load(open('structures/structures.yaml'), Loader=yaml.Loader)['structures']
 
     def build_structure(self, name, block_data, pos):
-        x, y, z = pos
+        y, z, x = pos
         structure = Structure(name, self.structures[name], self.legend)
+        h, w, l = structure.dimensions
+        dx, dz = structure.offsets
+        x, z = x + dx, z + dz
+
+        # expand the blueprint to the full dimensions
+        bp = np.array([-1] * math.prod(block_data.shape), dtype=int).reshape(block_data.shape)
+        bp[y:y+h,z:z+l,x:x+w] = structure.blueprint
+
+        # used MaskedArray to copy into the block_data where the blueprint is not -1
+        return np.ma.array(block_data, mask=(bp >= 0)).filled(bp)
 
 
 if __name__ == "__main__":
