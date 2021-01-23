@@ -1,7 +1,53 @@
+# Roguecraft
 
+Generate rougelike dungeons for minecraft.
 
-## NBT Files
+## Installation
 
+This is a simple command line program.  The following libraries must be installed.
+
+```
+pip install numpy Python-NBT
+```
+
+## Usage
+
+```
+Create a dungeon level suitable for importing with worldedit.
+
+Example:
+    ./roguecraft.py -w 60 -l 60 -m 3 -M 20 -R 40 -D 
+
+positional arguments:
+  name                  Filename for the schema (default is dungeon)
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -w WIDTH, --width WIDTH
+                        dungeon width
+  -l LENGTH, --length LENGTH
+                        dungeon length
+  --height HEIGHT       dungeon height (min 4)
+  -m MIN, --min MIN     room minimum size
+  -M MAX, --max MAX     room maximum size
+  -R ROOMS, --rooms ROOMS
+                        maximum number of rooms
+  --seed SEED           random seed (int)
+  -D, --debug           debug logging output
+```
+
+## Example
+
+Create a 60x60 dungeon with rooms of the default height, rooms from 3...20 height and width, with a maximum of 20 rooms per level. 
+
+```
+./roguecraft.py -w 60 -l 60 -m 3 -M 20 -R 40
+```
+
+## NBT Notes
+
+| ID | Name | Description |
+|--|--|
 | 0  | End        | None. | 
 | 1  | Byte       | A single signed byte (8 bits) | 
 | 2  | Short      | A signed short (16 bits, big endian) | 
@@ -14,11 +60,9 @@
 | 9  | List       | TAG_Byte tagId |
 | 10 | Compound   | A sequential list of Named Tags. This array keeps going until a TAG_End is found. |
 
-### Format
-
 * https://minecraft.gamepedia.com/NBT_format
 
-### Example
+### NBT Example
 
 * https://github.com/TowardtheStars/Python-NBT
 
@@ -75,9 +119,12 @@ An NBT file consists of a single GZIPped Named Tag of type TAG_Compound.
 
 A Named Tag has the following format:
 
+```
     byte tagType
     TAG_String name
     [payload] 
+```
+
 The tagType is a single byte defining the contents of the payload of the tag.
 
 The name is a descriptive name, and can be anything (eg "cat", "banana", "Hello World!"). It has nothing to do with the tagType.
@@ -90,6 +137,7 @@ Note that ONLY Named Tags carry the name and tagType data. Explicitly identified
 
 The tag types and respective payloads are:
 
+```
     TYPE: 0  NAME: TAG_End
     Payload: None.
     Note:    This tag is used to mark the end of a list.
@@ -131,77 +179,4 @@ The tag types and respective payloads are:
     Notes:   If there's a nested TAG_Compound within this tag, that one will also have a TAG_End, so simply reading until the next TAG_End will not work.
              The names of the named tags have to be unique within each TAG_Compound
              The order of the tags is not guaranteed.
-
-Decoding example:
-(Use http://www.minecraft.net/docs/test.nbt to test your implementation)
-
-First we start by reading a Named Tag.
-After unzipping the stream, the first byte is a 10. That means the tag is a TAG_Compound (as expected by the specification).
-
-The next two bytes are 0 and 11, meaning the name string consists of 11 UTF-8 characters. In this case, they happen to be "hello world".
-That means our root tag is named "hello world". We can now move on to the payload.
-
-From the specification, we see that TAG_Compound consists of a series of Named Tags, so we read another byte to find the tagType.
-It happens to be an 8. The name is 4 letters long, and happens to be "name". Type 8 is TAG_String, meaning we read another two bytes to get the length,
-then read that many bytes to get the contents. In this case, it's "Bananrama".
-
-So now we know the TAG_Compound contains a TAG_String named "name" with the content "Bananrama"
-
-We move on to reading the next Named Tag, and get a 0. This is TAG_End, which always has an implied name of "". That means that the list of entries
-in the TAG_Compound is over, and indeed all of the NBT file.
-
-So we ended up with this:
-
-	TAG_Compound("hello world"): 1 entries
-	{
-	   TAG_String("name"): Bananrama
-	}
-
-For a slightly longer test, download http://www.minecraft.net/docs/bigtest.nbt
-You should end up with this:
-
-	TAG_Compound("Level"): 11 entries
-	{
-	   TAG_Short("shortTest"): 32767
-	   TAG_Long("longTest"): 9223372036854775807
-	   TAG_Float("floatTest"): 0.49823147
-	   TAG_String("stringTest"): HELLO WORLD THIS IS A TEST STRING ÅÄÖ!
-	   TAG_Int("intTest"): 2147483647
-	   TAG_Compound("nested compound test"): 2 entries
-	   {
-	      TAG_Compound("ham"): 2 entries
-	      {
-	         TAG_String("name"): Hampus
-	         TAG_Float("value"): 0.75
-	      }
-	      TAG_Compound("egg"): 2 entries
-	      {
-	         TAG_String("name"): Eggbert
-	         TAG_Float("value"): 0.5
-	      }
-	   }
-	   TAG_List("listTest (long)"): 5 entries of type TAG_Long
-	   {
-	      TAG_Long: 11
-	      TAG_Long: 12
-	      TAG_Long: 13
-	      TAG_Long: 14
-	      TAG_Long: 15
-	   }
-	   TAG_Byte("byteTest"): 127
-	   TAG_List("listTest (compound)"): 2 entries of type TAG_Compound
-	   {
-	      TAG_Compound: 2 entries
-	      {
-	         TAG_String("name"): Compound tag #0
-	         TAG_Long("created-on"): 1264099775885
-	      }
-	      TAG_Compound: 2 entries
-	      {
-	         TAG_String("name"): Compound tag #1
-	         TAG_Long("created-on"): 1264099775885
-	      }
-	   }
-	   TAG_Byte_Array("byteArrayTest (the first 1000 values of (n*n*255+n*7)%100, starting with n=0 (0, 62, 34, 16, 8, ...))"): [1000 bytes]
-	   TAG_Double("doubleTest"): 0.4931287132182315
-	}
+```
