@@ -44,6 +44,16 @@ Create a 60x60 dungeon with rooms of the default height, rooms from 3...20 heigh
 ./roguecraft.py -w 60 -l 60 -m 3 -M 20 -R 40
 ```
 
+Then copy the generated **dungeon.schem** to the minecraft/config/WorldEdit/schematics directory.
+
+From inside the game use the WorldEdit commands
+
+```
+//schem load dungeon
+//paste
+```
+
+
 ## NBT Notes
 
 | ID | Name | Description |
