@@ -15,6 +15,72 @@ import structure
 logger = logging.getLogger()
 
 
+def tsp(cities, rand=None):
+    """
+    Simulated annealing solver for traveling salesperson problem.
+        logger.debug("cities: {cities}")
+        tour = tsp(cities)
+
+    cities:
+        an array of x,y points
+
+    based on:
+        Eric Phanson
+        https://ericphanson.com/blog/2016/the-traveling-salesman-and-10-lines-of-python/
+
+    Example:
+
+    >>> rand = random.Random(31415)
+    >>> cities = numpy.array([rand.sample(range(100), 2) for x in range(10)], dtype=int)
+    >>> tsp(cities, rand)
+    [1, 0, 6, 3, 7, 4, 9, 8, 5, 2]
+    """
+    if rand is None:
+        rand = random.Random()
+    count = len(cities)
+    # create a random tour
+    tour = rand.sample(range(count),count)
+
+    # build the distance matrix
+    dist_matrix = np.zeros(count * count).reshape(count, count)
+    for i in range(count):
+        for j in range(count):
+            dist_matrix[i][j] = np.linalg.norm(cities[i] - cities[j])
+
+    def dist(t):
+        return sum([dist_matrix[t[i]][t[i+1]] for i in range(len(t) - 1)])
+
+    # check for improvement every 1000 steps after 20000
+    steps = 0
+    last_dist = dist(tour)
+
+    for temperature in np.logspace(0,5,num=100000)[::-1]:
+        # swap the positions of two random cities
+        i,j = sorted(rand.sample(range(count),2))
+        new_tour =  tour[:i] + tour[j:j+1] +  tour[i+1:j] + tour[i:i+1] + tour[j+1:]
+        changes = [j,j-1,i,i-1]
+
+        def delta_dist_matrix(t):
+            return sum([dist_matrix[t[(k+1) % count]][t[(k) % count]] for k in changes])
+
+        dist_tour = delta_dist_matrix(tour)
+        dist_new_tour = delta_dist_matrix(new_tour)
+        change = (dist_tour - dist_new_tour) / temperature
+
+        if math.exp(change) > rand.random():
+            tour = new_tour
+
+        # stop after insufficient change
+        steps += 1
+        if steps > 20000 and steps % 1000 == 0:
+            d = dist(tour)
+            if abs(d - last_dist) / d <= 0.0001:
+                break
+            last_dist = d
+
+    return tour
+
+
 class Rect:
     " a rectangle on the map. used to characterize a room "
     def __init__(self, x, y, w, h):
@@ -58,6 +124,112 @@ class Rect:
         return Rect(x1, y1, x2 - x1, y2 - y1)
 
 
+class Room(Rect):
+
+    def __init__(self, label, x, y, w, h):
+        Rect.__init__(self, x, y, w, h)
+        self.label = label
+
+
+class Passage:
+
+    def __init__(self, *rects):
+        " a passage is a collection of adjoining rectangles "
+        self.rects = rects
+
+    def __add__(self, other):
+        rects = self.rects + other.rects
+        return Passage(*rects)
+
+    def __repr__(self):
+        return repr(self.rects)
+
+    @staticmethod
+    def connect_tsp(rand, *rooms):
+        """ connect the rooms with passages using tsp ordering """
+        rects = []
+        cities = np.array([r.center for r in rooms])
+        tour = tsp(cities, rand)
+        new_rooms = [rooms[t] for t in tour]
+        rooms = new_rooms
+        for i in range(len(rooms)):
+            r1, r2 = rooms[i], rooms[(i+1) % len(rooms)]
+            x1, y1 = r1.center
+            x2, y2 = r2.center
+            if rand.randint(0, 1):
+                # horizontal and then vertical tunnel from centre to centre
+                h = Rect.build_rect(x1, y1, x2, y1)
+                v = Rect.build_rect(x2, y1, x2, y2)
+            else:
+                # vertical and then horizontal tunnel from centre to centre
+                v = Rect.build_rect(x1, y1, x1, y2)
+                h = Rect.build_rect(x1, y2, x2, y2)
+            rects.append(h)
+            rects.append(v)
+        return Passage(*rects)
+
+    def connect_partition(rand, *rooms):
+        def partition(axis, v, rects):
+            if axis == 'x':
+                n = 0
+            elif axis == 'y':
+                n = 0
+            else:
+                raise Exception("Expected x or y")
+            return ([r for r in rects if r.center[n] <= v],
+                    [r for r in rects if r.center[n] > v])
+
+        min_x = min(r.x1 for r in rooms)
+        max_x = max(r.x2 for r in rooms)
+        min_y = min(r.y1 for r in rooms)
+        max_y = max(r.y2 for r in rooms)
+
+        # look for a nice partition
+        best = [], []
+        best_r = len(rooms)
+
+        for x in range(min_x, max_x):
+            a, b = partition('x', x, rooms)
+            r = abs(len(a) - len(b))
+            if r < best_r:
+                best = a, b
+                best_r = r
+        for y in range(min_y, max_y):
+            a, b = partition('y', y, rooms)
+            r = abs(len(a) - len(b))
+            if r < best_r:
+                best = a, b
+                best_r = r
+
+        if len(best[0]) > 1 and len(best[1]) > 1:
+            cycle1 = Passage.connect_tsp(rand, *best[0])
+            cycle2 = Passage.connect_tsp(rand, *best[1])
+            cycle3 = Passage.connect_ordered(rand, best[0][0], best[1][0])
+            return cycle1 + cycle2 + cycle3
+        else:
+            return Passage.connect_tsp(rand, *rooms)
+
+    @staticmethod
+    def connect_ordered(rand, *rooms):
+        """ connect the rooms with passages from center to center """
+        rects = []
+        for i in range(len(rooms) - 1):
+            r1, r2 = rooms[i], rooms[i+1]
+            x1, y1 = r1.center
+            x2, y2 = r2.center
+            if rand.randint(0, 1):
+                # horizontal and then vertical tunnel from centre to centre
+                h = Rect.build_rect(x1, y1, x2, y1)
+                v = Rect.build_rect(x2, y1, x2, y2)
+            else:
+                # vertical and then horizontal tunnel from centre to centre
+                v = Rect.build_rect(x1, y1, x1, y2)
+                h = Rect.build_rect(x1, y2, x2, y2)
+            rects.append(h)
+            rects.append(v)
+        return Passage(*rects)
+
+
 class LevelBuilder:
 
     def __init__(self, level_width, level_height, seed=None, room_max_size=10,
@@ -73,36 +245,27 @@ class LevelBuilder:
         self.room_min_size = room_min_size
         self.max_rooms = max_rooms
         self.rooms = []
-        self.passages = []
+        # self.passages = []
+        self.passages = None
+
+    def connect(self, r1, r2):
+        pass
 
     def build(self):
+        n = 1
         for _ in range(self.max_rooms):
             w = self.rand.randint(self.room_min_size, self.room_max_size)
             h = self.rand.randint(self.room_min_size, self.room_max_size)
             x = self.rand.randint(1, self.level_width - w - 2)
             y = self.rand.randint(1, self.level_height - h - 2)
-            room = Rect(x, y, w, h)
+            room = Room(str(n), x, y, w, h)
             intersection = (o for o in self.rooms if o.intersects(room))
             if any(intersection):
                 continue
-            x1, y1 = room.center
-
-            # connect to the previous room
-            if self.rooms:
-                x2, y2 = self.rooms[-1].center
-
-                if self.rand.randint(0, 1):
-                    # horizontal and then vertical tunnel from centre to centre
-                    h = Rect.build_rect(x1, y1, x2, y1)
-                    v = Rect.build_rect(x2, y1, x2, y2)
-                else:
-                    # vertical and then horizontal tunnel from centre to centre
-                    v = Rect.build_rect(x1, y1, x1, y2)
-                    h = Rect.build_rect(x1, y2, x2, y2)
-                self.passages.append(h)
-                self.passages.append(v)
-
+            n = n + 1
             self.rooms.append(room)
+
+        self.passages = Passage.connect_partition(self.rand, *self.rooms)
 
         self.floor_plan = np.zeros(self.level_width * self.level_height, dtype=int) \
                             .reshape(self.level_height, self.level_width)
@@ -110,7 +273,7 @@ class LevelBuilder:
         for room in self.rooms:
             self.floor_plan[room.y1:room.y2, room.x1:room.x2] = 2
 
-        for passage in self.passages:
+        for passage in self.passages.rects:
             self.floor_plan[passage.y1:passage.y2 + 1, passage.x1:passage.x2 + 1] = 2
 
         return self.floor_plan
@@ -121,9 +284,16 @@ def show_level(builder):
           f"""height={builder.level_height}, room_max_sz={builder.room_max_size}, """
           f"""room_min_sz={builder.room_min_size},max_rooms={builder.max_rooms})""")
     h, w = builder.floor_plan.shape
+    lines = []
     for y in range(h):
         line = [{0: '#', 2: '.', 3: '>'}[c] for c in builder.floor_plan[y]]
-        print("".join(line))
+        lines.append(line)
+    for room in builder.rooms:
+        x, y = room.center
+        line = lines[y]
+        line = line[:x] + [room.label] + line[x + len(room.label):]
+        lines[y] = line
+    print("\n".join(["".join(l) for l in lines]))
 
 
 def create_template(width, length, height):

@@ -7,7 +7,7 @@ Generate rougelike dungeons for minecraft.
 This is a simple command line program.  The following libraries must be installed.
 
 ```
-pip install numpy Python-NBT
+pip install PyYAML numpy Python-NBT
 ```
 
 ## Usage
