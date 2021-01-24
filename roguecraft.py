@@ -22,32 +22,40 @@ class Rect:
         self.y1 = y
         self.x2 = x + w
         self.y2 = y + h
-
-    def center(self):
+        self.w = w
+        self.h = h
+        self.tl = self.x1, self.y1
+        self.tr = self.x2, self.y1
+        self.bl = self.x1, self.y2
+        self.br = self.x2, self.y2
         center_x = (self.x1 + self.x2) // 2
         center_y = (self.y1 + self.y2) // 2
-        return (center_x, center_y)
+        self.center = (center_x, center_y)
 
-    def intersect(self, other):
+    def intersects(self, other):
         " returns true if this rectangle intersects with another one "
         return (self.x1 <= other.x2 and self.x2 >= other.x1 and
                 self.y1 <= other.y2 and self.y2 >= other.y1)
 
+    def intersection(self, other):
+        " returns the intersection between this rectangle and another "
+        if not self.intersects(other):
+            return None
+        x1, y1 = max(self.x1, other.x1), max(self.y1, other.y1)
+        x2, y2 = min(self.x2, other.x2), min(self.y2, other.y2)
+        return Rect(x1, y1, x2 - x1, y2 - y1)
+
     def __repr__(self):
-        return f"<Room {self.x1},{self.y1},{self.x2},{self.y2}>"
+        return f"<Rect {self.x1},{self.y1},{self.x2},{self.y2}>"
 
-
-class Passage(Rect):
-    " a horizontal or vertical line "
-    def __init__(self, x1, y1, x2, y2):
+    @staticmethod
+    def build_rect(x1, y1, x2, y2):
+        # build a rect from two pairs of points that may not be correctly ordered
         if x1 >= x2:
             x1, x2 = x2, x1
         if y1 >= y2:
             y1, y2 = y2, y1
-        self.x1, self.y1, self.x2, self.y2 = x1, y1, x2, y2
-
-    def __repr__(self):
-        return f"<Passage {self.x1},{self.y1},{self.x2},{self.y2}>"
+        return Rect(x1, y1, x2 - x1, y2 - y1)
 
 
 class LevelBuilder:
@@ -74,23 +82,23 @@ class LevelBuilder:
             x = self.rand.randint(1, self.level_width - w - 2)
             y = self.rand.randint(1, self.level_height - h - 2)
             room = Rect(x, y, w, h)
-            intersection = (o for o in self.rooms if o.intersect(room))
+            intersection = (o for o in self.rooms if o.intersects(room))
             if any(intersection):
                 continue
-            x1, y1 = room.center()
+            x1, y1 = room.center
 
             # connect to the previous room
             if self.rooms:
-                x2, y2 = self.rooms[-1].center()
+                x2, y2 = self.rooms[-1].center
 
                 if self.rand.randint(0, 1):
-                    # horizontal and then vertical tunnel
-                    h = Passage(x1, y1, x2, y1)
-                    v = Passage(x2, y1, x2, y2)
+                    # horizontal and then vertical tunnel from centre to centre
+                    h = Rect.build_rect(x1, y1, x2, y1)
+                    v = Rect.build_rect(x2, y1, x2, y2)
                 else:
-                    # vertical and then horizontal tunnel
-                    v = Passage(x1, y1, x1, y2)
-                    h = Passage(x1, y2, x2, y2)
+                    # vertical and then horizontal tunnel from centre to centre
+                    v = Rect.build_rect(x1, y1, x1, y2)
+                    h = Rect.build_rect(x1, y2, x2, y2)
                 self.passages.append(h)
                 self.passages.append(v)
 
