@@ -46,8 +46,8 @@ class Structure:
 class StructureBuilder:
 
     def __init__(self):
-        self.legend = yaml.load(open('structures/legend.yaml'), Loader=yaml.Loader)['legend']
-        self.structures = yaml.load(open('structures/structures.yaml'), Loader=yaml.Loader)['structures']
+        self.legend = yaml.load(open('roguecraft/res/legend.yaml'), Loader=yaml.Loader)['legend']
+        self.structures = yaml.load(open('roguecraft/res/structures.yaml'), Loader=yaml.Loader)['structures']
 
     def build_structure(self, name, block_data, pos):
         y, z, x = pos

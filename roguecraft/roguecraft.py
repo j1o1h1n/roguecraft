@@ -10,23 +10,22 @@ import math
 import random
 import python_nbt.nbt as nbt
 
-import structure
+import roguecraft.structures as structures
 
 logger = logging.getLogger()
 
 
 def tsp(cities, rand=None):
     """
-    Simulated annealing solver for traveling salesperson problem.
-        logger.debug("cities: {cities}")
-        tour = tsp(cities)
+    Simulated annealing solver for traveling salesperson problem.  This is used
+    to plot a sensible looking pathway from room to room on a level.
 
     cities:
         an array of x,y points
 
-    based on:
-        Eric Phanson
-        https://ericphanson.com/blog/2016/the-traveling-salesman-and-10-lines-of-python/
+    Inspired by work by Eric Phanson.
+
+    * https://ericphanson.com/blog/2016/the-traveling-salesman-and-10-lines-of-python/
 
     Example:
 
@@ -63,6 +62,7 @@ def tsp(cities, rand=None):
         def delta_dist_matrix(t):
             return sum([dist_matrix[t[(k+1) % count]][t[(k) % count]] for k in changes])
 
+        # only need to find the change for the swapped cities
         dist_tour = delta_dist_matrix(tour)
         dist_new_tour = delta_dist_matrix(new_tour)
         change = (dist_tour - dist_new_tour) / temperature
@@ -70,7 +70,7 @@ def tsp(cities, rand=None):
         if math.exp(change) > rand.random():
             tour = new_tour
 
-        # stop after insufficient change
+        # stop when the delta distance falls below 0.01% over 1000 steps
         steps += 1
         if steps > 20000 and steps % 1000 == 0:
             d = dist(tour)
@@ -134,7 +134,7 @@ class Room(Rect):
 class Passage:
 
     def __init__(self, *rects):
-        " a passage is a collection of adjoining rectangles "
+        " a passage is a collection of connected rectangles "
         self.rects = rects
 
     def __add__(self, other):
@@ -145,13 +145,18 @@ class Passage:
         return repr(self.rects)
 
     @staticmethod
-    def connect_tsp(rand, *rooms):
+    def connect_tsp(rand, *rooms, room_number_offset=0):
         """ connect the rooms with passages using tsp ordering """
         rects = []
         cities = np.array([r.center for r in rooms])
         tour = tsp(cities, rand)
         new_rooms = [rooms[t] for t in tour]
         rooms = new_rooms
+
+        # rename the rooms
+        for i, r in enumerate(rooms):
+            r.label = str(i + 1 + room_number_offset)
+
         for i in range(len(rooms)):
             r1, r2 = rooms[i], rooms[(i+1) % len(rooms)]
             x1, y1 = r1.center
@@ -203,7 +208,7 @@ class Passage:
 
         if len(best[0]) > 1 and len(best[1]) > 1:
             cycle1 = Passage.connect_tsp(rand, *best[0])
-            cycle2 = Passage.connect_tsp(rand, *best[1])
+            cycle2 = Passage.connect_tsp(rand, *best[1], room_number_offset=len(best[0]))
             cycle3 = Passage.connect_ordered(rand, best[0][0], best[1][0])
             return cycle1 + cycle2 + cycle3
         else:
@@ -279,6 +284,38 @@ class LevelBuilder:
         return self.floor_plan
 
 
+class DungeonBuilder:
+    " Build the entire dungeon. Write the dungeon to a schema file or a map. "
+    def __init__(self, levels, width, length, height):
+        self.levels = levels
+        self.width = width
+        self.length = length
+        self.height = height
+
+    def create_template(self):
+        pass
+
+    def build(self):
+        self.dungeon, self.block_data = self.create_template()
+
+    def wite(self, file_name_stem):
+        " write schematic file, metadata and ascii art map "
+        self.write_schema(f"{file_name_stem}.schem")
+        self.write_map(f"{file_name_stem}.map")
+        self.write_schema(f"{file_name_stem}.write_metadata")
+
+    def write_schema(self, file_name):
+        bd = [int(v) for v in self.block_data.reshape(math.prod(block_data.shape))]
+        self.dungeon['BlockData'] = nbt.NBTTagByteArray(bd)
+        nbt.write_to_nbt_file(file_name, self.dungeon)
+
+    def write_map(self, file_name):
+        pass
+
+    def write_metadata(self, file_name):
+        pass
+
+
 def show_level(builder):
     print(f"""Dungeon(seed={builder.seed} width={builder.level_width}, """
           f"""height={builder.level_height}, room_max_sz={builder.room_max_size}, """
@@ -333,7 +370,7 @@ def write_dungeon(name, dungeon, block_data):
 
 def main(parser, args):
     levels, width, length, height = args.levels, args.width, args.length, args.height
-    dungeon, block_data = create_template(width, length, height)
+    dungeon, block_data = create_template(levels, width, length, height)
 
     builder = LevelBuilder(width, length, seed=args.seed, room_min_size=args.min,
                            room_max_size=args.max, max_rooms=args.rooms)
@@ -348,7 +385,7 @@ def main(parser, args):
 
     # add some stairs
     room = builder.rooms[0]
-    sb = structure.StructureBuilder()
+    sb = structures.StructureBuilder()
 
     p1 = 1, room.y1, room.x1
     p2 = 1, room.y1, room.x2
@@ -359,7 +396,8 @@ def main(parser, args):
     block_data = sb.build_structure('sw_spiral_stair', block_data, p3)
     block_data = sb.build_structure('se_spiral_stair', block_data, p4)
 
-    write_dungeon(f"{args.name}.schem", dungeon, block_data)
+    fn = f"{args.name}.schem"
+    write_dungeon(fn, dungeon, block_data)
 
     if args.debug:
         show_level(builder)
@@ -390,8 +428,8 @@ Example:
                         help='random seed (int)')
     parser.add_argument("-D", "--debug", action="store_true",
                         help="debug logging output")
-    parser.add_argument("name", default="dungeon", nargs='?',
-                        help="Filename for the schema (default is dungeon)")
+    parser.add_argument("name", default="build/dungeon", nargs='?',
+                        help="Schematic filename (default is build/dungeon)")
     args = parser.parse_args()
 
     level = logging.DEBUG if args.debug else logging.INFO

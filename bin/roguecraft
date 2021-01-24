@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+from roguecraft import roguecraft
+
+if __name__ == "__main__":
+    parser, args = roguecraft.parse_args()
+    roguecraft.main(parser, args)
