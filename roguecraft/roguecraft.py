@@ -253,9 +253,6 @@ class LevelBuilder:
         # self.passages = []
         self.passages = None
 
-    def connect(self, r1, r2):
-        pass
-
     def build(self):
         n = 1
         for _ in range(self.max_rooms):
@@ -284,19 +281,108 @@ class LevelBuilder:
         return self.floor_plan
 
 
+def create_palette(d):
+    palette = nbt.NBTTagCompound()
+    for k in d:
+        palette[f'minecraft:{k}'] = nbt.NBTTagInt(d[k])
+    return palette, nbt.NBTTagInt(len(d))
+
+
+class DungeonLevel:
+
+    def __init__(self, level, rooms, passages, floor_plan):
+        self.level = level
+        self.rooms = rooms
+        self.passages = passages
+        self.floor_plan = floor_plan
+
+    @staticmethod
+    def build(rand, level, width, length, height, room_max_size, room_min_size, max_rooms):
+        for _ in range(max_rooms):
+            w = rand.randint(room_min_size, room_max_size)
+            h = rand.randint(room_min_size, room_max_size)
+            x = rand.randint(1, level_width - w - 2)
+            y = rand.randint(1, level_height - h - 2)
+            room = Room(str(len(rooms) + 1), x, y, w, h)
+            intersection = (o for o in rooms if o.intersects(room))
+            if any(intersection):
+                continue
+            rooms.append(room)
+
+        passages = Passage.connect_partition(rand, *rooms)
+
+        floor_plan = np.zeros(level_width * level_height, dtype=int) \
+                              .reshape(level_height, level_width)
+
+        for room in rooms:
+            floor_plan[room.y1:room.y2, room.x1:room.x2] = 2
+
+        for passage in passages.rects:
+            floor_plan[passage.y1:passage.y2 + 1, passage.x1:passage.x2 + 1] = 2
+
+        return Level(level, rooms, passages, floor_plan)
+
+
 class DungeonBuilder:
     " Build the entire dungeon. Write the dungeon to a schema file or a map. "
-    def __init__(self, levels, width, length, height):
+    def __init__(self, seed, levels, width, length, height, room_max_size=10,
+                 room_min_size=6, max_rooms=30):
+        if seed is None:
+            self.seed = random.randint(0, 2 ** 32 - 1)
+        else:
+            self.seed = seed
+        self.rand = random.Random(self.seed)
         self.levels = levels
         self.width = width
         self.length = length
         self.height = height
+        self.room_max_size = room_max_size
+        self.room_min_size = room_min_size
+        self.max_rooms = max_rooms
+        self.dungeon = None
+        self.block_data = None
 
     def create_template(self):
-        pass
+        dungeon = nbt.NBTTagCompound()
+        dungeon['Version'] = nbt.NBTTagInt(2)
+        dungeon['DataVersion'] = nbt.NBTTagInt(2584)
+        dungeon['Width'] = nbt.NBTTagShort(self.width)
+        dungeon['Length'] = nbt.NBTTagShort(self.length)
+        dungeon['Height'] = nbt.NBTTagShort(self.height * self.levels)
+        dungeon['BlockData'] = nbt.NBTTagList(tag_type_id=10)
+        dungeon['BlockEntities'] = nbt.NBTTagByteArray()
+        dungeon['Offset'] = nbt.NBTTagByteArray([0, 0, 0])
+
+        # TODO handle palette better
+        std_stairs = 'half=bottom,shape=straight,waterlogged=false'
+        p, pm = create_palette({
+            'stone': 0,
+            'smooth_stone': 1,
+            'air': 2,
+            f'stone_brick_stairs[facing=north,{std_stairs}]': 3,
+            f'stone_brick_stairs[facing=east,{std_stairs}]': 4,
+            f'stone_brick_stairs[facing=south,{std_stairs}]': 5,
+            f'stone_brick_stairs[facing=west,{std_stairs}]': 6,
+        })
+        dungeon['Palette'] = p
+        dungeon['PaletteMax'] = pm
+        self.dungeon = dungeon
+
+        dimensions = self.levels * self.height * self.length * self.width
+        block_data = np.zeros(dimensions, dtype=int)
+        self.block_data = block_data.reshape(self.levels * self.height, 
+                                             self.length, self.width)
 
     def build(self):
-        self.dungeon, self.block_data = self.create_template()
+        self.create_template()
+        for level in range(self.levels):
+            y = level * self.height
+            self.build_level(level, y)
+
+    def build_level(self, level, y):
+        self.levels.append(DungeonLevel.build(self.rand, self.level, 
+            self.width, self.length, self.height, self.room_max_size, 
+            self.room_min_size, self.max_rooms))
 
     def wite(self, file_name_stem):
         " write schematic file, metadata and ascii art map "
@@ -331,41 +417,6 @@ def show_level(builder):
         line = line[:x] + [room.label] + line[x + len(room.label):]
         lines[y] = line
     print("\n".join(["".join(l) for l in lines]))
-
-
-def create_template(width, length, height):
-    dungeon = nbt.NBTTagCompound()
-    dungeon['Version'] = nbt.NBTTagInt(2)
-    dungeon['DataVersion'] = nbt.NBTTagInt(2584)
-    dungeon['Width'] = nbt.NBTTagShort(width)
-    dungeon['Length'] = nbt.NBTTagShort(length)
-    dungeon['Height'] = nbt.NBTTagShort(height)
-    dungeon['BlockData'] = nbt.NBTTagList(tag_type_id=10)
-    dungeon['BlockEntities'] = nbt.NBTTagByteArray()
-    dungeon['Offset'] = nbt.NBTTagByteArray([0, 0, 0])
-
-    # TODO handle palette better
-    dungeon['Palette'] = nbt.NBTTagCompound()
-    dungeon['Palette']['minecraft:stone'] = nbt.NBTTagInt(0)
-    dungeon['Palette']['minecraft:smooth_stone'] = nbt.NBTTagInt(1)
-    dungeon['Palette']['minecraft:air'] = nbt.NBTTagInt(2)
-    dungeon['Palette']['minecraft:stone_brick_stairs[facing=north,half=bottom,shape=straight,waterlogged=false]'] = nbt.NBTTagInt(3)
-    dungeon['Palette']['minecraft:stone_brick_stairs[facing=east,half=bottom,shape=straight,waterlogged=false]'] = nbt.NBTTagInt(4)
-    dungeon['Palette']['minecraft:stone_brick_stairs[facing=south,half=bottom,shape=straight,waterlogged=false]'] = nbt.NBTTagInt(5)
-    dungeon['Palette']['minecraft:stone_brick_stairs[facing=west,half=bottom,shape=straight,waterlogged=false]'] = nbt.NBTTagInt(6)
-    dungeon['PaletteMax'] = nbt.NBTTagInt(7)
-
-    block_data = np.zeros(width * length * height, dtype=int).reshape(height, length, width)
-
-    return dungeon, block_data
-
-
-def write_dungeon(name, dungeon, block_data):
-    bd = [int(v) for v in block_data.reshape(math.prod(block_data.shape))]
-
-    dungeon['BlockData'] = nbt.NBTTagByteArray(bd)
-
-    nbt.write_to_nbt_file(name, dungeon)
 
 
 def main(parser, args):
