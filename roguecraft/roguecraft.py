@@ -9,6 +9,7 @@ import json
 import math
 import random
 import python_nbt.nbt as nbt
+import typing
 
 import roguecraft.structures as structures
 
@@ -173,7 +174,9 @@ class Passage:
             rects.append(v)
         return Passage(*rects)
 
-    def connect_partition(rand, *rooms):
+    @staticmethod
+    def connect_partition(rand: random.Random, *rooms: Room):
+        logger.debug(f"connecting {len(rooms)} rooms")
         def partition(axis, v, rects):
             if axis == 'x':
                 n = 0
@@ -190,7 +193,7 @@ class Passage:
         max_y = max(r.y2 for r in rooms)
 
         # look for a nice partition
-        best = [], []
+        best: typing.Tuple[typing.List[Room], typing.List[Room]]= [], []
         best_r = len(rooms)
 
         for x in range(min_x, max_x):
@@ -250,7 +253,6 @@ class LevelBuilder:
         self.room_min_size = room_min_size
         self.max_rooms = max_rooms
         self.rooms = []
-        # self.passages = []
         self.passages = None
 
     def build(self):
@@ -288,6 +290,34 @@ def create_palette(d):
     return palette, nbt.NBTTagInt(len(d))
 
 
+class Dimensions:
+
+    def __init__(self, levels, height, width, length):
+        """
+        Dungeon dimensions
+          levels - number of levels in the dungeon.
+          height - height of a dungeon level (y)
+          width - level width (x)
+          length - length of a dungeon level (z)
+        """
+        self.levels = levels
+        self.height = height
+        self.width = width
+        self.length = length
+        # convenience properties
+        self.total_height = self.levels * self.height
+        self.total_area = self.total_height * width * length
+        self.measurements = (self.total_height, length, width)
+
+
+class RoomConstraints:
+
+    def __init__(self, min_size, max_size, max_rooms):
+        self.min_size = min_size
+        self.max_size = max_size
+        self.max_rooms = max_rooms
+
+
 class DungeonLevel:
 
     def __init__(self, level, rooms, passages, floor_plan):
@@ -297,12 +327,13 @@ class DungeonLevel:
         self.floor_plan = floor_plan
 
     @staticmethod
-    def build(rand, level, width, length, height, room_max_size, room_min_size, max_rooms):
-        for _ in range(max_rooms):
-            w = rand.randint(room_min_size, room_max_size)
-            h = rand.randint(room_min_size, room_max_size)
-            x = rand.randint(1, level_width - w - 2)
-            y = rand.randint(1, level_height - h - 2)
+    def build(rand: random.Random, level: int, dim: Dimensions, rc: RoomConstraints):
+        rooms: typing.List[Room] = []
+        for _ in range(rc.max_rooms):
+            w = rand.randint(rc.min_size, rc.max_size)
+            h = rand.randint(rc.min_size, rc.max_size)
+            x = rand.randint(1, dim.width - w - 2)
+            y = rand.randint(1, dim.height - h - 2)
             room = Room(str(len(rooms) + 1), x, y, w, h)
             intersection = (o for o in rooms if o.intersects(room))
             if any(intersection):
@@ -311,8 +342,8 @@ class DungeonLevel:
 
         passages = Passage.connect_partition(rand, *rooms)
 
-        floor_plan = np.zeros(level_width * level_height, dtype=int) \
-                              .reshape(level_height, level_width)
+        floor_plan = np.zeros(dim.width * dim.height, dtype=int) \
+                              .reshape(dim.height, dim.width)
 
         for room in rooms:
             floor_plan[room.y1:room.y2, room.x1:room.x2] = 2
@@ -320,35 +351,30 @@ class DungeonLevel:
         for passage in passages.rects:
             floor_plan[passage.y1:passage.y2 + 1, passage.x1:passage.x2 + 1] = 2
 
-        return Level(level, rooms, passages, floor_plan)
+        return DungeonLevel(level, rooms, passages, floor_plan)
 
 
 class DungeonBuilder:
     " Build the entire dungeon. Write the dungeon to a schema file or a map. "
-    def __init__(self, seed, levels, width, length, height, room_max_size=10,
-                 room_min_size=6, max_rooms=30):
+    def __init__(self, seed: int, dimensions: Dimensions, room_constraints: RoomConstraints):
         if seed is None:
-            self.seed = random.randint(0, 2 ** 32 - 1)
+            self.seed: int = random.randint(0, 2 ** 32 - 1)
         else:
             self.seed = seed
         self.rand = random.Random(self.seed)
-        self.levels = levels
-        self.width = width
-        self.length = length
-        self.height = height
-        self.room_max_size = room_max_size
-        self.room_min_size = room_min_size
-        self.max_rooms = max_rooms
-        self.dungeon = None
-        self.block_data = None
+        self.dimensions = dimensions
+        self.room_constraints = room_constraints
+        self.dungeon: nbt.NBTTagCompound = None
+        self.block_data: np.array = None
+        self.levels: typing.List[DungeonLevel] = []
 
     def create_template(self):
         dungeon = nbt.NBTTagCompound()
         dungeon['Version'] = nbt.NBTTagInt(2)
         dungeon['DataVersion'] = nbt.NBTTagInt(2584)
-        dungeon['Width'] = nbt.NBTTagShort(self.width)
-        dungeon['Length'] = nbt.NBTTagShort(self.length)
-        dungeon['Height'] = nbt.NBTTagShort(self.height * self.levels)
+        dungeon['Width'] = nbt.NBTTagShort(self.dimensions.width)
+        dungeon['Length'] = nbt.NBTTagShort(self.dimensions.length)
+        dungeon['Height'] = nbt.NBTTagShort(self.dimensions.total_height)
         dungeon['BlockData'] = nbt.NBTTagList(tag_type_id=10)
         dungeon['BlockEntities'] = nbt.NBTTagByteArray()
         dungeon['Offset'] = nbt.NBTTagByteArray([0, 0, 0])
@@ -368,30 +394,32 @@ class DungeonBuilder:
         dungeon['PaletteMax'] = pm
         self.dungeon = dungeon
 
-        dimensions = self.levels * self.height * self.length * self.width
-        block_data = np.zeros(dimensions, dtype=int)
-        self.block_data = block_data.reshape(self.levels * self.height, 
-                                             self.length, self.width)
+        block_data = np.zeros(self.dimensions.total_area, dtype=int)
+        self.block_data = block_data.reshape(*self.dimensions.measurements)
 
     def build(self):
         self.create_template()
-        for level in range(self.levels):
-            y = level * self.height
-            self.build_level(level, y)
+        for level in range(self.dimensions.levels):
+            logger.debug(f"building level {level+1} of {self.dimensions.levels}")
+            self.build_level(level)
+        self.build_stairs()
 
-    def build_level(self, level, y):
-        self.levels.append(DungeonLevel.build(self.rand, self.level, 
-            self.width, self.length, self.height, self.room_max_size, 
-            self.room_min_size, self.max_rooms))
+    def build_level(self, level: int):
+        self.levels.append(DungeonLevel.build(self.rand, level, self.dimensions,
+                                              self.room_constraints))
 
-    def wite(self, file_name_stem):
+    def build_stairs(self):
+        # TODO find places to put stairs to connect the levels
+        pass
+
+    def write(self, file_name: str):
         " write schematic file, metadata and ascii art map "
-        self.write_schema(f"{file_name_stem}.schem")
-        self.write_map(f"{file_name_stem}.map")
-        self.write_schema(f"{file_name_stem}.write_metadata")
+        self.write_schema(f"{file_name}.schem")
+        self.write_map(f"{file_name}.map")
+        self.write_schema(f"{file_name}.metadata")
 
     def write_schema(self, file_name):
-        bd = [int(v) for v in self.block_data.reshape(math.prod(block_data.shape))]
+        bd = [int(v) for v in self.block_data.reshape(math.prod(self.block_data.shape))]
         self.dungeon['BlockData'] = nbt.NBTTagByteArray(bd)
         nbt.write_to_nbt_file(file_name, self.dungeon)
 
@@ -420,38 +448,41 @@ def show_level(builder):
 
 
 def main(parser, args):
-    levels, width, length, height = args.levels, args.width, args.length, args.height
-    dungeon, block_data = create_template(levels, width, length, height)
+    dims = Dimensions(args.levels, args.width, args.length, args.height)
+    constraints = RoomConstraints(args.min, args.max, args.rooms)
 
-    builder = LevelBuilder(width, length, seed=args.seed, room_min_size=args.min,
-                           room_max_size=args.max, max_rooms=args.rooms)
+    builder = DungeonBuilder(args.seed, dims, constraints)
+    builder.build()
+    builder.write(args.name)
+    # builder = LevelBuilder(width, length, seed=args.seed, room_min_size=args.min,
+    #                        room_max_size=args.max, max_rooms=args.rooms)
 
-    floor_plan = builder.build()
-    for y in range(1, height - 1):
-        block_data[y] = floor_plan
+    # floor_plan = builder.build()
+    # for y in range(1, height - 1):
+    #     block_data[y] = floor_plan
 
-    # make the room ceilings and floors smooth stone
-    block_data[-1][floor_plan == 2] = 1
-    block_data[0][floor_plan == 2] = 1
+    # # make the room ceilings and floors smooth stone
+    # block_data[-1][floor_plan == 2] = 1
+    # block_data[0][floor_plan == 2] = 1
 
-    # add some stairs
-    room = builder.rooms[0]
-    sb = structures.StructureBuilder()
+    # # add some stairs
+    # room = builder.rooms[0]
+    # sb = structures.StructureBuilder()
 
-    p1 = 1, room.y1, room.x1
-    p2 = 1, room.y1, room.x2
-    p3 = 1, room.y2, room.x1
-    p4 = 1, room.y2, room.x2
-    block_data = sb.build_structure('nw_spiral_stair', block_data, p1)
-    block_data = sb.build_structure('ne_spiral_stair', block_data, p2)
-    block_data = sb.build_structure('sw_spiral_stair', block_data, p3)
-    block_data = sb.build_structure('se_spiral_stair', block_data, p4)
+    # p1 = 1, room.y1, room.x1
+    # p2 = 1, room.y1, room.x2
+    # p3 = 1, room.y2, room.x1
+    # p4 = 1, room.y2, room.x2
+    # block_data = sb.build_structure('nw_spiral_stair', block_data, p1)
+    # block_data = sb.build_structure('ne_spiral_stair', block_data, p2)
+    # block_data = sb.build_structure('sw_spiral_stair', block_data, p3)
+    # block_data = sb.build_structure('se_spiral_stair', block_data, p4)
 
-    fn = f"{args.name}.schem"
-    write_dungeon(fn, dungeon, block_data)
+    # fn = f"{args.name}.schem"
+    # write_dungeon(fn, dungeon, block_data)
 
-    if args.debug:
-        show_level(builder)
+    # if args.debug:
+    #     show_level(builder)
 
 
 def parse_args():
