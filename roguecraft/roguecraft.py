@@ -308,6 +308,7 @@ class Dimensions:
         self.total_height = self.levels * self.height
         self.total_area = self.total_height * width * length
         self.measurements = (self.total_height, length, width)
+        logger.debug(f"Dimensions: measurements: {self.measurements}, total_height: {self.total_height}")
 
 
 class RoomConstraints:
@@ -333,7 +334,7 @@ class DungeonLevel:
             w = rand.randint(rc.min_size, rc.max_size)
             h = rand.randint(rc.min_size, rc.max_size)
             x = rand.randint(1, dim.width - w - 2)
-            y = rand.randint(1, dim.height - h - 2)
+            y = rand.randint(1, dim.length - h - 2)
             room = Room(str(len(rooms) + 1), x, y, w, h)
             intersection = (o for o in rooms if o.intersects(room))
             if any(intersection):
@@ -342,8 +343,8 @@ class DungeonLevel:
 
         passages = Passage.connect_partition(rand, *rooms)
 
-        floor_plan = np.zeros(dim.width * dim.height, dtype=int) \
-                              .reshape(dim.height, dim.width)
+        floor_plan = np.zeros(dim.width * dim.length, dtype=int) \
+                              .reshape(dim.length, dim.width)
 
         for room in rooms:
             floor_plan[room.y1:room.y2, room.x1:room.x2] = 2
@@ -399,10 +400,28 @@ class DungeonBuilder:
 
     def build(self):
         self.create_template()
+
+        # build floor plan for each level
         for level in range(self.dimensions.levels):
             logger.debug(f"building level {level+1} of {self.dimensions.levels}")
             self.build_level(level)
+
+        # TODO build stairs
         self.build_stairs()
+
+
+        # TODO fill the block_data array
+        for level in range(self.dimensions.levels):
+            height = self.dimensions.height
+            bottom, top = level * height, (level + 1) * height
+            floor_plan = self.levels[level].floor_plan
+            for y in range(bottom + 1, top - 1):
+                self.block_data[y] = floor_plan
+
+            # make the room ceilings and floors smooth stone
+            self.block_data[bottom][floor_plan == 2] = 1
+            self.block_data[top - 1][floor_plan == 2] = 1
+
 
     def build_level(self, level: int):
         self.levels.append(DungeonLevel.build(self.rand, level, self.dimensions,
@@ -410,6 +429,19 @@ class DungeonBuilder:
 
     def build_stairs(self):
         # TODO find places to put stairs to connect the levels
+
+        # # add some stairs
+        # room = builder.rooms[0]
+        # sb = structures.StructureBuilder()        
+
+        # p1 = 1, room.y1, room.x1
+        # p2 = 1, room.y1, room.x2
+        # p3 = 1, room.y2, room.x1
+        # p4 = 1, room.y2, room.x2
+        # block_data = sb.build_structure('nw_spiral_stair', block_data, p1)
+        # block_data = sb.build_structure('ne_spiral_stair', block_data, p2)
+        # block_data = sb.build_structure('sw_spiral_stair', block_data, p3)
+        # block_data = sb.build_structure('se_spiral_stair', block_data, p4)
         pass
 
     def write(self, file_name: str):
@@ -448,7 +480,7 @@ def show_level(builder):
 
 
 def main(parser, args):
-    dims = Dimensions(args.levels, args.width, args.length, args.height)
+    dims = Dimensions(args.levels, args.height, args.width, args.length)
     constraints = RoomConstraints(args.min, args.max, args.rooms)
 
     builder = DungeonBuilder(args.seed, dims, constraints)
