@@ -5,6 +5,9 @@ import math
 import glob
 import yaml
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Structure:
@@ -15,7 +18,7 @@ class Structure:
         self.tags = self.config['tags']
         self.dimensions = self.config['dimensions']
         # x,z offset when placing the structure
-        self.offsets = self.config.get('offsets', [0, 0])
+        self.offsets = [0, 0] # self.config.get('offsets', [0, 0])
         self.blueprint = self.parse_blueprint(self.config['blueprint'], legend)
 
     def parse_blueprint(self, blueprint_text, legend):
@@ -49,8 +52,9 @@ class StructureBuilder:
         self.legend = yaml.load(open('roguecraft/res/legend.yaml'), Loader=yaml.Loader)['legend']
         self.structures = yaml.load(open('roguecraft/res/structures.yaml'), Loader=yaml.Loader)['structures']
 
-    def build_structure(self, name, block_data, pos):
-        y, z, x = pos
+    def build_structure(self, name, block_data, pos, jitter=2):
+        logger.debug(f"build {name} at {pos}")
+        y, x, z = pos
         structure = Structure(name, self.structures[name], self.legend)
         h, w, l = structure.dimensions
         dx, dz = structure.offsets
@@ -58,6 +62,12 @@ class StructureBuilder:
 
         # expand the blueprint to the full dimensions
         bp = np.array([-1] * math.prod(block_data.shape), dtype=int).reshape(block_data.shape)
+
+        # clip the blueprint when it extends past the top of the dungeon
+        y_max = bp.shape[0]
+        if y + h > y_max:
+            h = y_max - y
+            structure.blueprint = structure.blueprint[0:h]
         bp[y:y+h,z:z+l,x:x+w] = structure.blueprint
 
         # used MaskedArray to copy into the block_data where the blueprint is not -1

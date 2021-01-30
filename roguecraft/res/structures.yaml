@@ -3,44 +3,44 @@ structures:
     tags:
       - stair
     # height, length, width
-    dimensions: [4, 3, 3]
-    offsets: [-1, 0]
+    dimensions: [5, 3, 3]
+    offsets: [9, 0]
     placement_preference: tl
     blueprint: "
-    ##o #<o <.o ..o
-    #^. #.. #.o v.o
-    o.. o.. ooo ooo
+    ##o #<o <.o ..o ..o
+    #^. #.. #.o v.o ..o
+    o.. o.. o.o ooo voo
     "
   ne_spiral_stair:
     tags:
       - stair
-    dimensions: [4, 3, 3]
-    offsets: [-2, 0]
+    dimensions: [5, 3, 3]
+    offsets: [0, 0]
     placement_preference: tr
     blueprint: "
-    o## o># o.> o..
-    .^# ..# o.# o.v
-    ..o ..o ooo ooo
+    o## o># o.> o.. ..o
+    .^# ..# o.# o.v ..o
+    ..o ..o o.o ooo ovo
     "
   sw_spiral_stair:
     tags:
       - stair
-    dimensions: [4, 3, 3]
-    offsets: [-1, -3]
+    dimensions: [5, 3, 3]
+    offsets: [0, 0]
     placement_preference: bl
     blueprint: "
-    o.. o.. ooo ooo
-    #v. #.. #.o ^.o
-    ##o #<o <.o ..o
+    o.. o.. o.o ooo ^oo
+    #v. #.. #.o ^.o ..o
+    ##o #<o <.o ..o ..o
     "
   se_spiral_stair:
     tags:
       - stair
-    dimensions: [4, 3, 3]
-    offsets: [-2, -3]
+    dimensions: [5, 3, 3]
+    offsets: [0, 0]
     placement_preference: br
     blueprint: "
-    ..o ..o ooo ooo
-    .v# ..# o.# o.^
-    o## o># o.^ o..
+    ..o ..o ooo o.o o^o
+    .v# ..# o.# o.^ ..o
+    o## o># o.^ o.. ..o
     "
