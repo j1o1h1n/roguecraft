@@ -466,7 +466,7 @@ class DungeonBuilder:
             p = y, *rect.center
         elif loc == 'se':
             p = y, *rect.center
-        self.block_data = sb.build_structure(stair_name, self.block_data, p)
+        self.block_data = sb.build_structure(stair_name, self.block_data, p, 3)
         logger.debug(f"build {loc} stair on level {level} at {p}")
    
         # mark stairs up and down on the map
@@ -496,27 +496,27 @@ class DungeonBuilder:
         _, z, x = p
         self.levels[level].floor_plan[x][z] = 3
 
-        p = y, *r.tr
-        self.block_data = sb.build_structure('ne_spiral_stair', self.block_data, p)
-        _, z, x = p
-        self.levels[level].floor_plan[x][z] = 3
+        # p = y, *r.tr
+        # self.block_data = sb.build_structure('ne_spiral_stair', self.block_data, p)
+        # _, z, x = p
+        # self.levels[level].floor_plan[x][z] = 3
 
-        p = y, *r.bl
-        self.block_data = sb.build_structure('sw_spiral_stair', self.block_data, p)
-        _, z, x = p
-        self.levels[level].floor_plan[x][z] = 3
+        # p = y, *r.bl
+        # self.block_data = sb.build_structure('sw_spiral_stair', self.block_data, p)
+        # _, z, x = p
+        # self.levels[level].floor_plan[x][z] = 3
 
-        p = y, *r.br
-        self.block_data = sb.build_structure('se_spiral_stair', self.block_data, p)
-        _, z, x = p
-        self.levels[level].floor_plan[x][z] = 3
+        # p = y, *r.br
+        # self.block_data = sb.build_structure('se_spiral_stair', self.block_data, p)
+        # _, z, x = p
+        # self.levels[level].floor_plan[x][z] = 3
 
 
     def write(self, file_name: str):
         " write schematic file, metadata and ascii art map "
         self.write_schema(f"{file_name}.schem")
         self.write_map(f"{file_name}.md")
-        self.write_schema(f"{file_name}.metadata")
+        self.write_metadata(f"{file_name}.yaml")
 
     def write_schema(self, file_name: str):
         bd = [int(v) for v in self.block_data.reshape(math.prod(self.block_data.shape))]
@@ -594,35 +594,6 @@ def main(parser, args):
     builder = DungeonBuilder(args.seed, dims, constraints)
     builder.build()
     builder.write(args.name)
-    # builder = LevelBuilder(width, length, seed=args.seed, room_min_size=args.min,
-    #                        room_max_size=args.max, max_rooms=args.rooms)
-
-    # floor_plan = builder.build()
-    # for y in range(1, height - 1):
-    #     block_data[y] = floor_plan
-
-    # # make the room ceilings and floors smooth stone
-    # block_data[-1][floor_plan == 2] = 1
-    # block_data[0][floor_plan == 2] = 1
-
-    # # add some stairs
-    # room = builder.rooms[0]
-    # sb = structures.StructureBuilder()
-
-    # p1 = 1, room.y1, room.x1
-    # p2 = 1, room.y1, room.x2
-    # p3 = 1, room.y2, room.x1
-    # p4 = 1, room.y2, room.x2
-    # block_data = sb.build_structure('nw_spiral_stair', block_data, p1)
-    # block_data = sb.build_structure('ne_spiral_stair', block_data, p2)
-    # block_data = sb.build_structure('sw_spiral_stair', block_data, p3)
-    # block_data = sb.build_structure('se_spiral_stair', block_data, p4)
-
-    # fn = f"{args.name}.schem"
-    # write_dungeon(fn, dungeon, block_data)
-
-    # if args.debug:
-    #     show_level(builder)
 
 
 def parse_args():

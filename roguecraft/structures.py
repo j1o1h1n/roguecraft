@@ -1,22 +1,43 @@
 """
 Load structure files.
 """
+import logging
+import typing
 import math
 import glob
+import itertools
+import numpy as np  # type: ignore
 import yaml
-import numpy as np
-import logging
 
 logger = logging.getLogger(__name__)
+
+
+def score_placement(dst, bp, p: tuple[int, int, int], 
+                    normalise: bool=True) -> float:
+    """
+    Determine how close a fit the blueprint is to the destination location.
+
+    This is calculated by counting how many points differ between the two
+    matrices.
+    """
+    y, z, x = p
+    h, l, w = bp.shape
+    arr = dst[y:y+h,z:z+l,x:x+w]
+    score = np.sum(np.equal(bp, arr))
+    if not normalise:
+        return score
+    nf = np.sum(bp >= 0)
+    n_score = score / nf
+    return n_score
 
 
 class Structure:
 
     def __init__(self, name, config, legend):
-        self.name = name
-        self.config = config
-        self.tags = self.config['tags']
-        self.dimensions = self.config['dimensions']
+        self.name: str = name
+        self.config: dict[str,typing.Any] = config
+        self.tags: list[str] = self.config['tags']
+        self.dimensions: tuple[int,int,int] = self.config['dimensions']
         # x,z offset when placing the structure
         self.offsets = [0, 0] # self.config.get('offsets', [0, 0])
         self.blueprint = self.parse_blueprint(self.config['blueprint'], legend)
@@ -51,8 +72,20 @@ class StructureBuilder:
     def __init__(self):
         self.legend = yaml.load(open('roguecraft/res/legend.yaml'), Loader=yaml.Loader)['legend']
         self.structures = yaml.load(open('roguecraft/res/structures.yaml'), Loader=yaml.Loader)['structures']
+        self.tags = {}
+        for name in self.structures:
+            cfg = self.structures[name]
+            tags = cfg.get('tags', [])
+            for tag in tags:
+                if tag not in self.tags:
+                    self.tags[tag] = []
+                self.tags[tag].append(name)
 
-    def build_structure(self, name, block_data, pos, jitter=2):
+    def lookup_by_tag(self, tag):
+        " return name of structures that have the given tag "
+        return self.tags.get(tag, [])
+
+    def build_structure(self, name: str, block_data, pos: tuple[int,int,int], jitter=0):
         logger.debug(f"build {name} at {pos}")
         y, x, z = pos
         structure = Structure(name, self.structures[name], self.legend)
@@ -68,6 +101,19 @@ class StructureBuilder:
         if y + h > y_max:
             h = y_max - y
             structure.blueprint = structure.blueprint[0:h]
+
+        if jitter:
+            # see if a 'better' location for the structure can be found nearby
+            pos = y, z, x
+            best = (-1.0, "", (0,0,0))
+            for dz, dx in itertools.permutations(range(-jitter, jitter + 1), 2):
+                y, z, x = pos
+                pos1 = (y, z + dz, x + dx)
+                s = score_placement(block_data, structure.blueprint, pos1)
+                if s > best[0]:
+                    best = (s, name, pos1)
+            _, _, (y, z, x) = best
+
         bp[y:y+h,z:z+l,x:x+w] = structure.blueprint
 
         # used MaskedArray to copy into the block_data where the blueprint is not -1
