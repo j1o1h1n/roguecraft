@@ -3,3 +3,4 @@ __pycache__
 build/*.schem
 build
 roguecraft.egg-info
+.DS_Store

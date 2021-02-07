@@ -16,6 +16,9 @@ import roguecraft.structures as structures
 logger = logging.getLogger()
 
 
+AIR = 2
+
+
 def tsp(cities: list, rand: random.Random=None):
     """
     Simulated annealing solver for traveling salesperson problem.  This is used
@@ -281,32 +284,61 @@ class DungeonLevel:
         self.passages = passages
         self.floor_plan = floor_plan
 
-    @staticmethod
-    def build(rand: random.Random, level: int, dim: Dimensions, rc: RoomConstraints):
-        rooms: typing.List[Room] = []
-        for _ in range(rc.max_rooms):
-            w = rand.randint(rc.min_size, rc.max_size)
-            h = rand.randint(rc.min_size, rc.max_size)
-            x = rand.randint(1, dim.width - w - 2)
-            y = rand.randint(1, dim.length - h - 2)
-            room = Room(str(len(rooms) + 1), x, y, w, h)
-            intersection = (o for o in rooms if o.intersects(room))
-            if any(intersection):
-                continue
-            rooms.append(room)
 
-        passages = Passage.connect_partition(rand, *rooms)
+class DungeonLevelBuilder:
 
-        floor_plan = np.zeros(dim.width * dim.length, dtype=int) \
-                              .reshape(dim.length, dim.width)
+    def __init__(self, rand: random.Random, dim: Dimensions, rc: RoomConstraints):
+        """
+        Builder for DungeonLevels with the given dimensions and room constraints.
+        """
+        self.rand = rand
+        self.dim = dim
+        self.rc = rc
 
-        for room in rooms:
-            floor_plan[room.y1:room.y2, room.x1:room.x2] = 2
+        # reset on each build
+        self.rooms: list[Room] = []
+        self.passages = Passage()
 
-        for passage in passages.rects:
-            floor_plan[passage.y1:passage.y2 + 1, passage.x1:passage.x2 + 1] = 2
+    def add_room(self, room: Room) -> None:
+        self.rooms.append(room)
 
-        return DungeonLevel(level, rooms, passages, floor_plan)
+    def create_room(self) -> None:
+        w = self.rand.randint(self.rc.min_size, self.rc.max_size)
+        h = self.rand.randint(self.rc.min_size, self.rc.max_size)
+        x = self.rand.randint(1, self.dim.width - w - 2)
+        y = self.rand.randint(1, self.dim.length - h - 2)
+        room = Room(str(len(self.rooms) + 1), x, y, w, h)
+        intersection = (o for o in self.rooms if o.intersects(room))
+        if any(intersection):
+            return
+        self.add_room(room)
+
+    def create_floor_plan(self) -> np.array:
+        floor_plan = np.zeros(self.dim.width * self.dim.length, dtype=int) \
+                              .reshape(self.dim.length, self.dim.width)
+
+        for room in self.rooms:
+            floor_plan[room.y1:room.y2, room.x1:room.x2] = AIR
+
+        for passage in self.passages.rects:
+            floor_plan[passage.y1:passage.y2 + 1, 
+                       passage.x1:passage.x2 + 1] = AIR
+
+        return floor_plan
+
+    def connect_rooms(self) -> Passage:
+        return Passage.connect_partition(self.rand, *self.rooms)
+
+    def build(self, level: int) -> DungeonLevel:
+        self.rooms = []
+        for _ in range(self.rc.max_rooms):
+            self.create_room()
+
+        self.passages = self.connect_rooms()
+
+        floor_plan = self.create_floor_plan()
+
+        return DungeonLevel(level, self.rooms, self.passages, floor_plan)
 
 
 class DungeonBuilder:
@@ -319,6 +351,7 @@ class DungeonBuilder:
         self.rand = random.Random(self.seed)
         self.dimensions = dimensions
         self.room_constraints = room_constraints
+        self.dlb = DungeonLevelBuilder(self.rand, dimensions, room_constraints)
         self.dungeon: nbt.NBTTagCompound = None
         self.block_data: np.array = None
         self.levels: typing.List[DungeonLevel] = []
@@ -339,7 +372,7 @@ class DungeonBuilder:
         p, pm = create_palette({
             'stone': 0,
             'smooth_stone': 1,
-            'air': 2,
+            'air': AIR,
             f'stone_brick_stairs[facing=north,{std_stairs}]': 3,
             f'stone_brick_stairs[facing=east,{std_stairs}]': 4,
             f'stone_brick_stairs[facing=south,{std_stairs}]': 5,
@@ -361,6 +394,10 @@ class DungeonBuilder:
             logger.debug(f"building level {level+1} of {self.dimensions.levels}")
             self.build_level(level)
 
+        self.apply_floorplan()
+        self.build_stairs()
+
+    def apply_floorplan(self):
         for level in range(self.dimensions.levels):
             height = self.dimensions.height
             bottom, top = level * height, (level + 1) * height
@@ -372,24 +409,8 @@ class DungeonBuilder:
             self.block_data[bottom][floor_plan == 2] = 1
             self.block_data[top - 1][floor_plan == 2] = 1
 
-        self.build_stairs()
-
-        # # DEBUG - make room intersections polished diorite
-        # for level in range(self.dimensions.levels - 1):
-        #     top = (level + 1) * height
-        #     rooms = self.levels[level].rooms
-        #     rooms_up = self.levels[level + 1].rooms
-        #     avail = []
-        #     for r0 in rooms:
-        #         for r1 in filter(lambda x: x.intersects(r0), rooms_up):
-        #             r2 = r0.intersection(r1)
-        #             self.block_data[top - 1][r2.y1:r2.y2,r2.x1:r2.x2] = 7
-        #             self.block_data[top][r2.y1:r2.y2,r2.x1:r2.x2] = 7
-
-
     def build_level(self, level: int):
-        self.levels.append(DungeonLevel.build(self.rand, level, self.dimensions,
-                                              self.room_constraints))
+        self.levels.append(self.dlb.build(level))
 
     def find_stair_locations(self, level: int) -> typing.List[typing.Tuple[Room, Rect]]:
         """
@@ -445,26 +466,8 @@ class DungeonBuilder:
         r = self.levels[level].rooms[0]
         y = level * self.dimensions.height + 1
 
-        logger.debug(f"building stairs at the four corners of room #{r.label} {r}")
         p = y, *r.tl
         self.block_data = sb.build_structure('nw_spiral_stair', self.block_data, p)
-        _, z, x = p
-        self.levels[level].floor_plan[x][z] = 3
-
-        # p = y, *r.tr
-        # self.block_data = sb.build_structure('ne_spiral_stair', self.block_data, p)
-        # _, z, x = p
-        # self.levels[level].floor_plan[x][z] = 3
-
-        # p = y, *r.bl
-        # self.block_data = sb.build_structure('sw_spiral_stair', self.block_data, p)
-        # _, z, x = p
-        # self.levels[level].floor_plan[x][z] = 3
-
-        # p = y, *r.br
-        # self.block_data = sb.build_structure('se_spiral_stair', self.block_data, p)
-        # _, z, x = p
-        # self.levels[level].floor_plan[x][z] = 3
 
 
     def write(self, file_name: str):
