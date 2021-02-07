@@ -237,66 +237,6 @@ class Passage:
         return Passage(*rects)
 
 
-class LevelBuilder:
-
-    def __init__(self, level_width: int, level_height: int, seed: int=None,
-                 room_max_size=10, room_min_size=6, max_rooms=30):
-        if seed is None:
-            self.seed = random.randint(0, 2 ** 32 - 1)
-        else:
-            self.seed = seed
-        self.rand = random.Random(self.seed)
-        self.level_width = level_width
-        self.level_height = level_height
-        self.room_max_size = room_max_size
-        self.room_min_size = room_min_size
-        self.max_rooms = max_rooms
-        self.rooms: list[Room] = []
-        self.passages = None
-
-    def add_room(self, room: Room):
-        self.rooms.append(room)
-
-    def create_random_room(self):
-        w = self.rand.randint(self.room_min_size, self.room_max_size)
-        h = self.rand.randint(self.room_min_size, self.room_max_size)
-        x = self.rand.randint(1, self.level_width - w - 2)
-        y = self.rand.randint(1, self.level_height - h - 2)
-        room = Room(str(len(self.rooms) + 1), x, y, w, h)
-        intersection = (o for o in self.rooms if o.intersects(room))
-        if any(intersection):
-            return
-        self.add_room(room)
-
-    def create_floorplan(self):
-        AIR = 2
-        h, w = self.level_height, self.level_width
-        area = h * w
-        self.floor_plan = np.zeros(h * w, dtype=int).reshape(h, w)
-
-        for room in self.rooms:
-            self.floor_plan[room.y1:room.y2, room.x1:room.x2] = AIR
-
-        for passage in self.passages.rects:
-            self.floor_plan[passage.y1:passage.y2 + 1,
-                            passage.x1:passage.x2 + 1] = AIR
-
-        return self.floor_plan
-
-    def build(self):
-        """
-        Try to place up to max_rooms non-intersecting rooms.
-        Connect with passages.
-        Build simple floorplan.
-        """
-        for _ in range(self.max_rooms):
-            self.create_random_room()
-
-        self.passages = Passage.connect_partition(self.rand, *self.rooms)
-
-        return self.create_floorplan()
-
-
 def create_palette(d: typing.Dict[str,int]):
     palette = nbt.NBTTagCompound()
     for k in d:
