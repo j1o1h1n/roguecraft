@@ -10,13 +10,15 @@ import math
 import random
 import python_nbt.nbt as nbt # type: ignore
 import typing
+import re
 
 import roguecraft.structures as structures
 
 logger = logging.getLogger()
 
-
 AIR = 2
+LEFT, RIGHT = "left", "right"
+NORTH, EAST, SOUTH, WEST = "north", "east", "west", "south"
 
 
 def tsp(cities: list, rand: random.Random=None):
@@ -102,6 +104,9 @@ class Rect:
         center_y = (self.y1 + self.y2) // 2
         self.center = (center_x, center_y)
 
+    def __repr__(self):
+        return f"Rect(x={self.x1}, y={self.y1}, w={self.w}, h={self.h})"
+
     def intersects(self, other): # type: (Rect) -> bool
         " returns true if this rectangle intersects with another one "
         return (self.x1 <= other.x2 and self.x2 >= other.x1 and
@@ -114,9 +119,6 @@ class Rect:
         x1, y1 = max(self.x1, other.x1), max(self.y1, other.y1)
         x2, y2 = min(self.x2, other.x2), min(self.y2, other.y2)
         return Rect(x1, y1, x2 - x1, y2 - y1)
-
-    def __repr__(self):
-        return f"<Rect {self.x1},{self.y1},{self.x2},{self.y2}>"
 
     @staticmethod
     def build_rect(x1, y1, x2, y2): # type: (int,int,int,int) -> Rect
@@ -133,6 +135,18 @@ class Room(Rect):
     def __init__(self, label: str, x: int, y: int, w: int, h: int):
         Rect.__init__(self, x, y, w, h)
         self.label = label
+
+    def __repr__(self):
+        return f"Room(label={self.label}, x={self.x1}, y={self.y1}, " \
+               f"w={self.w}, h={self.h})"
+
+
+class Door:
+
+    def __init__(self, x: int, y: int, facing: str, hinge: str):
+        self.x, self.y = x, y
+        self.facing = facing
+        self.hinge = hinge
 
 
 class Passage:
@@ -265,8 +279,10 @@ class Dimensions:
         self.total_height = self.levels * self.height
         self.total_area = self.total_height * width * length
         self.measurements = (self.total_height, length, width)
-        logger.debug(f"Dimensions: measurements: {self.measurements}, total_height: {self.total_height}")
 
+    def __repr__(self):
+        return f"Dimensions(levels={self.levels}, height={self.height}, " \
+               f"width={self.width}, length={self.length})"
 
 class RoomConstraints:
 
@@ -275,6 +291,9 @@ class RoomConstraints:
         self.max_size = max_size
         self.max_rooms = max_rooms
 
+    def __repr__(self):
+        return f"RoomConstraints(min_size={self.min_size}, " \
+               f"max_size={self.max_size}, max_rooms={self.max_rooms})"
 
 class DungeonLevel:
 
@@ -298,6 +317,7 @@ class DungeonLevelBuilder:
         # reset on each build
         self.rooms: list[Room] = []
         self.passages = Passage()
+        self.doors: list[Door] = []
 
     def add_room(self, room: Room) -> None:
         self.rooms.append(room)
@@ -321,7 +341,7 @@ class DungeonLevelBuilder:
             floor_plan[room.y1:room.y2, room.x1:room.x2] = AIR
 
         for passage in self.passages.rects:
-            floor_plan[passage.y1:passage.y2 + 1, 
+            floor_plan[passage.y1:passage.y2 + 1,
                        passage.x1:passage.x2 + 1] = AIR
 
         return floor_plan
@@ -343,11 +363,14 @@ class DungeonLevelBuilder:
 
 class DungeonBuilder:
     " Build the entire dungeon. Write the dungeon to a schema file or a map. "
-    def __init__(self, seed: int, dimensions: Dimensions, room_constraints: RoomConstraints):
+    def __init__(self, seed: int, dimensions: Dimensions,
+                 room_constraints: RoomConstraints, position=None):
         if seed is None:
             self.seed: int = random.randint(0, 2 ** 32 - 1)
         else:
             self.seed = seed
+        logger.debug(f"building dungeon with seed {self.seed}, "
+                      f"dimensions: {dimensions}, rooms: {room_constraints}")
         self.rand = random.Random(self.seed)
         self.dimensions = dimensions
         self.room_constraints = room_constraints
@@ -355,6 +378,7 @@ class DungeonBuilder:
         self.dungeon: nbt.NBTTagCompound = None
         self.block_data: np.array = None
         self.levels: typing.List[DungeonLevel] = []
+        self.position = position
 
     def create_template(self):
         dungeon = nbt.NBTTagCompound()
@@ -365,6 +389,13 @@ class DungeonBuilder:
         dungeon['Height'] = nbt.NBTTagShort(self.dimensions.total_height)
         dungeon['BlockData'] = nbt.NBTTagList(tag_type_id=10)
         dungeon['BlockEntities'] = nbt.NBTTagByteArray()
+
+        oy = self.dimensions.levels * self.dimensions.height
+        md = nbt.NBTTagCompound()
+        md['WEOffsetX'] = nbt.NBTTagInt(0)
+        md['WEOffsetY'] = nbt.NBTTagInt(-oy)
+        md['WEOffsetZ'] = nbt.NBTTagInt(0)
+        dungeon['Metadata'] = md
         dungeon['Offset'] = nbt.NBTTagByteArray([0, 0, 0])
 
         # TODO handle palette better
@@ -378,6 +409,7 @@ class DungeonBuilder:
             f'stone_brick_stairs[facing=south,{std_stairs}]': 5,
             f'stone_brick_stairs[facing=west,{std_stairs}]': 6,
             'polished_granite': 7,
+            'gold_block': 8,
         })
         dungeon['Palette'] = p
         dungeon['PaletteMax'] = pm
@@ -396,6 +428,8 @@ class DungeonBuilder:
 
         self.apply_floorplan()
         self.build_stairs()
+        # self.build_doors()
+        self.block_data[0][0][0] = 8
 
     def apply_floorplan(self):
         for level in range(self.dimensions.levels):
@@ -434,22 +468,16 @@ class DungeonBuilder:
         y = level * self.dimensions.height + 1
         loc = self.rand.choice(['nw' ,'ne', 'sw', 'se'])
         stair_name = f"{loc}_spiral_stair"
-        if loc == 'nw':
-            p = y, *rect.center
-        elif loc == 'ne':
-            p = y, *rect.center
-        elif loc == 'sw':
-            p = y, *rect.center
-        elif loc == 'se':
-            p = y, *rect.center
+        p = y, *rect.center
+
         self.block_data = sb.build_structure(stair_name, self.block_data, p, 3)
         logger.debug(f"build {loc} stair on level {level} at {p}")
-   
+
         # mark stairs up and down on the map
         _, z, x = p
-        self.levels[level].floor_plan[z][x] = 3
+        self.levels[level].floor_plan[x][z] = 3
         if level < self.dimensions.levels - 1:
-            self.levels[level + 1].floor_plan[z][x] = 4
+            self.levels[level + 1].floor_plan[x][z] = 4
 
     def build_stairs(self):
         sb = structures.StructureBuilder()
@@ -466,9 +494,32 @@ class DungeonBuilder:
         r = self.levels[level].rooms[0]
         y = level * self.dimensions.height + 1
 
-        p = y, *r.tl
-        self.block_data = sb.build_structure('nw_spiral_stair', self.block_data, p)
+        corner, stair = self.rand.choice([
+            (r.tl, 'nw'),
+            (r.bl, 'sw'),
+            (r.tr, 'ne'),
+            (r.br, 'se'),
+        ])
+        p = y, corner[0], corner[1]
+        self.block_data = sb.build_structure('{}_spiral_stair'.format(stair),
+            self.block_data, p)
 
+    def build_doors(self):
+        room = self.levels[-1].rooms[0]
+        # check walls for passages and build a wall
+
+        # check one row above the north wall: room.tl - room.tr
+        z = 6 # height * level + 1
+        tl, tr = room.tl, room.tr
+        x0, y0 = tl
+        x1, _ = tr
+        # y0 - 1 look at the row one block north
+        row = self.block_data[z][y0-1,x0:x1]
+        # TODO find an isolated 2 in the row and put a door (Π) there
+
+        # east wall: room.tr - room.br
+        # south wall: room.bl - room.br
+        # west wall: room.tl - room.bl
 
     def write(self, file_name: str):
         " write schematic file, metadata and ascii art map "
@@ -515,11 +566,21 @@ roguecraft -L {dim.levels} --height {dim.height} -w {dim.width} -l {dim.length} 
                 h, w = floor_plan.shape
 
                 for y in range(h):
-                    line = [{0: '#', 2: '.', 3: '<', 4: '>'}[c] for c in floor_plan[y]]
+                    line = [{0: '#', 2: '.', 3: '<', 4: '>'}[c] for
+                            c in floor_plan[y]]
                     rows.append(line)
 
-                for room in self.levels[level].rooms:
+                rooms_legend: list[str] = []
+                for i, room in enumerate(self.levels[level].rooms):
                     x, y = room.center
+                    xo, yo, zo = x, (level * 5 + 1), y
+                    if self.position:
+                        x_off, y_off, z_off = self.position
+                        oy = self.dimensions.levels * self.dimensions.height
+                        xo, yo, zo = xo + x_off, yo + y_off - oy, zo + z_off
+                    rooms_legend.append((int(room.label),
+                                        f'{dim.levels - level}-{room.label}.'
+                                        f' {xo} {yo} {zo}'))
                     for y in [y, y+1, y-1, y+2, y-2]:
                         # check row is empty
                         line = rows[y]
@@ -530,7 +591,9 @@ roguecraft -L {dim.levels} --height {dim.height} -w {dim.width} -l {dim.length} 
                         rows[y] = line
                         break
 
-                floor_map = "\n".join([f'{num:3} ' + "".join(l) for num, l in enumerate(rows)])
+                floor_map = "\n".join([f'{num:3} ' + "".join(l) for num, l in
+                                       enumerate(rows)])
+                rooms_legend = "\n".join([r for _,r in sorted(rooms_legend)])
 
                 f.write(f"""
 # Level {dim.levels - level}
@@ -538,6 +601,9 @@ roguecraft -L {dim.levels} --height {dim.height} -w {dim.width} -l {dim.length} 
 ```
 {floor_map}
 ```
+
+## Rooms
+{rooms_legend}
 """)
 
     def write_metadata(self, file_name: str):
@@ -549,7 +615,15 @@ def main(parser, args):
     dims = Dimensions(args.levels, args.height, args.width, args.length)
     constraints = RoomConstraints(args.min, args.max, args.rooms)
 
-    builder = DungeonBuilder(args.seed, dims, constraints)
+    position = None
+    if args.position:
+        mo = re.match(r"(-?~?\d+),(-?~?\d+),(-?~?\d+)", args.position)
+        if not mo:
+            parser.error(f"could not parse position {args.position}, "
+                         "expecting x,y,z coordinates")
+        position = tuple([int(v.replace("~", "-")) for v in mo.groups()])
+        logger.debug(f"position: {repr(position)}")
+    builder = DungeonBuilder(args.seed, dims, constraints, position)
     builder.build()
     builder.write(args.name)
 
@@ -559,7 +633,10 @@ def parse_args():
 Create a dungeon level suitable for importing with worldedit.
 
 Example:
-    ./roguecraft.py -w 60 -l 60 -m 3 -M 20 -R 40 -D
+    ./roguecraft.py -w 60 -l 60 -m 3 -M 20 -R 40 -D --position=-44,237,87
+
+The --position argument with the x,y,z paste position will include in-world room
+locations in the map.
 """)
     parser.add_argument("-L", "--levels", type=int, required=True,
                         help="number of levels down the dungeon goes")
@@ -577,6 +654,8 @@ Example:
                         help="maximum number of rooms")
     parser.add_argument("--seed", default=None, type=int, required=False,
                         help='random seed (int)')
+    parser.add_argument("--position", default=None,
+                        help="x,y,z paste coordinates (for room locations in map)")
     parser.add_argument("-D", "--debug", action="store_true",
                         help="debug logging output")
     parser.add_argument("name", default="build/dungeon", nargs='?',

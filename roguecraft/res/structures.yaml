@@ -4,33 +4,30 @@ structures:
       - stair
     # height, length, width
     dimensions: [5, 3, 3]
-    offsets: [9, 0]
-    placement_preference: tl
+    offsets: [0, 0]
     blueprint: "
     ##o #<o <.o ..o ..o
-    #^. #.. #.o v.o ..o
-    o.. o.. o.o ooo voo
+    #^. #.. #.. v.o ..o
+    o.. o.. o.. ooo voo
     "
   ne_spiral_stair:
     tags:
       - stair
     dimensions: [5, 3, 3]
     offsets: [0, 0]
-    placement_preference: tr
     blueprint: "
-    o## o># o.> o.. ..o
-    .^# ..# o.# o.v ..o
-    ..o ..o o.o ooo ovo
+    o## o># o.> o.. o..
+    .^# ..# ..# o.v o..
+    ..o ..o ..o ooo oov
     "
   sw_spiral_stair:
     tags:
       - stair
     dimensions: [5, 3, 3]
     offsets: [0, 0]
-    placement_preference: bl
     blueprint: "
-    o.. o.. o.o ooo ^oo
-    #v. #.. #.o ^.o ..o
+    o.. o.. o.. ooo ^oo
+    #v. #.. #.. ^.o ..o
     ##o #<o <.o ..o ..o
     "
   se_spiral_stair:
@@ -38,9 +35,18 @@ structures:
       - stair
     dimensions: [5, 3, 3]
     offsets: [0, 0]
-    placement_preference: br
     blueprint: "
-    ..o ..o ooo o.o o^o
-    .v# ..# o.# o.^ ..o
-    o## o># o.^ o.. ..o
+    ..o ..o ..o o.o oo^
+    .v# ..# ..# o.^ o..
+    o## o># o.^ o.. o..
+    "
+  n_door:
+    tags:
+      - door
+    dimensions: [3, 3, 3]
+    offsets: [0, 0]
+    blueprint: "
+    #.# #.# #o#
+    #D# #D# ###
+    ... ... ...
     "

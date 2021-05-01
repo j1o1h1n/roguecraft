@@ -12,7 +12,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
-def score_placement(dst, bp, p: tuple[int, int, int], 
+def score_placement(dst, bp, p: tuple[int, int, int],
                     normalise: bool=True) -> float:
     """
     Determine how close a fit the blueprint is to the destination location.
@@ -67,6 +67,40 @@ class Structure:
         return blueprint.reshape(height, width, length)
 
 
+def rotate(blueprint, n):
+    " rotate the structure by 90 degrees ccw"
+    ROTATIONS = yaml.load(open('roguecraft/res/legend.yaml'), Loader=yaml.Loader)['rotations']
+
+    def rotate_block(val):
+        return ROTATIONS.get(val, val)
+
+    bp = np.copy(blueprint)
+    for i in range(n):
+        for level in range(len(bp)):
+            bp[level] = np.vectorize(rotate_block)(np.rot90(bp[level]))
+    return bp
+
+
+def to_printable(blueprint):
+    legend = yaml.load(open('roguecraft/res/legend.yaml'), Loader=yaml.Loader)['legend']
+    inv_legend = dict([(v,k) for k, v in legend.items()])
+    plan = np.vectorize(lambda x: inv_legend[x])(blueprint)
+    return plan
+
+
+def pretty_print(blueprint):
+    pp = to_printable(blueprint)
+    rows = []
+    for y in range(pp.shape[1]):
+        row = []
+        for z in range(pp.shape[0]):
+            if row:
+                row.append(' ')
+            row.extend(pp[z][y])
+        rows.append(''.join(row))
+    return '\n'.join(rows)
+
+
 class StructureBuilder:
 
     def __init__(self):
@@ -82,8 +116,12 @@ class StructureBuilder:
                 self.tags[tag].append(name)
 
     def lookup_by_tag(self, tag):
-        " return name of structures that have the given tag "
+        " return names of structures that have the given tag "
         return self.tags.get(tag, [])
+
+    def lookup(self, name):
+        " return a Structure of the given name "
+        return Structure(name, self.structures[name], self.legend)
 
     def build_structure(self, name: str, block_data, pos: tuple[int,int,int], jitter=0):
         logger.debug(f"build {name} at {pos}")
